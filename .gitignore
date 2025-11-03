@@ -43,8 +43,10 @@ Thumbs.db
 
 # Bot state
 last_match.json
+tracked_players.json
 
 # Tests
 test_api.py
 test_live_game.py
+test_player_stats.py
 test_bot_quick.sh

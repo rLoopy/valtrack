@@ -32,29 +32,57 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 # Base URL de l'API
 API_BASE_URL = 'https://api.henrikdev.xyz/valorant/v1'
 
-# Stockage du dernier match vérifié
-last_match_id = None
-duo_puuid = None
+# Stockage des joueurs trackés et derniers matchs
+TRACKED_PLAYERS_FILE = 'tracked_players.json'
 LAST_MATCH_FILE = 'last_match.json'
+tracked_players = {}  # Format: {puuid: {name, tag, last_match_id}}
 
-def load_last_match_id():
-    """Charge le dernier match ID depuis le fichier"""
-    try:
-        if os.path.exists(LAST_MATCH_FILE):
-            with open(LAST_MATCH_FILE, 'r') as f:
-                data = json.load(f)
-                return data.get('last_match_id')
-    except Exception as e:
-        print(f"Erreur lors du chargement du dernier match: {e}")
-    return None
+# Variables de compatibilité (gardées pour le premier joueur par défaut)
+duo_puuid = None
 
-def save_last_match_id(match_id):
-    """Sauvegarde le dernier match ID dans un fichier"""
+def load_tracked_players():
+    """Charge la liste des joueurs trackés"""
     try:
-        with open(LAST_MATCH_FILE, 'w') as f:
-            json.dump({'last_match_id': match_id}, f)
+        if os.path.exists(TRACKED_PLAYERS_FILE):
+            with open(TRACKED_PLAYERS_FILE, 'r') as f:
+                return json.load(f)
     except Exception as e:
-        print(f"Erreur lors de la sauvegarde du dernier match: {e}")
+        print(f"Erreur lors du chargement des joueurs: {e}")
+    return {}
+
+def save_tracked_players(players):
+    """Sauvegarde la liste des joueurs trackés"""
+    try:
+        with open(TRACKED_PLAYERS_FILE, 'w') as f:
+            json.dump(players, f, indent=2)
+    except Exception as e:
+        print(f"Erreur lors de la sauvegarde des joueurs: {e}")
+
+def add_tracked_player(name, tag, puuid):
+    """Ajoute un joueur à la liste de tracking"""
+    global tracked_players
+    tracked_players[puuid] = {
+        'name': name,
+        'tag': tag,
+        'last_match_id': None
+    }
+    save_tracked_players(tracked_players)
+
+def remove_tracked_player(puuid):
+    """Retire un joueur de la liste de tracking"""
+    global tracked_players
+    if puuid in tracked_players:
+        del tracked_players[puuid]
+        save_tracked_players(tracked_players)
+        return True
+    return False
+
+def update_last_match_for_player(puuid, match_id):
+    """Met à jour le dernier match ID pour un joueur"""
+    global tracked_players
+    if puuid in tracked_players:
+        tracked_players[puuid]['last_match_id'] = match_id
+        save_tracked_players(tracked_players)
 
 async def check_if_match_already_posted(channel, match_id):
     """Vérifie si le match a déjà été posté dans le channel"""
@@ -170,100 +198,97 @@ def get_mmr_history(name, tag, region='eu', size=10):
 async def on_ready():
     """Événement déclenché quand le bot est prêt"""
     print(f'{bot.user} est connecté!', flush=True)
-
-    # Charger le dernier match ID depuis le fichier
-    global duo_puuid, last_match_id
-    loaded_match_id = load_last_match_id()
-    if loaded_match_id:
-        last_match_id = loaded_match_id
-        print(f"Dernier match chargé: {last_match_id}", flush=True)
-
-    # Initialiser le PUUID du duo
+    
+    # Charger les joueurs trackés
+    global tracked_players, duo_puuid
+    tracked_players = load_tracked_players()
+    print(f"Joueurs trackés chargés: {len(tracked_players)}", flush=True)
+    
+    # Ajouter le joueur par défaut depuis .env s'il existe et n'est pas déjà tracké
     if DUO_NAME and DUO_TAG:
-        print(f"Récupération des informations pour {DUO_NAME}#{DUO_TAG}...", flush=True)
+        print(f"Vérification du joueur par défaut: {DUO_NAME}#{DUO_TAG}...", flush=True)
         account_info = get_account_info(DUO_NAME, DUO_TAG)
         if account_info:
-            duo_puuid = account_info.get('puuid')
-            print(f"PUUID du duo: {duo_puuid}", flush=True)
-        else:
-            print("⚠️ Impossible de récupérer le PUUID. Vérifiez le nom et le tag.", flush=True)
-    else:
-        print("⚠️ DUO_NAME et DUO_TAG ne sont pas configurés dans le .env", flush=True)
-
+            puuid = account_info.get('puuid')
+            duo_puuid = puuid  # Compatibilité
+            if puuid not in tracked_players:
+                print(f"Ajout du joueur par défaut: {DUO_NAME}#{DUO_TAG}", flush=True)
+                add_tracked_player(DUO_NAME, DUO_TAG, puuid)
+            else:
+                print(f"Joueur déjà tracké: {DUO_NAME}#{DUO_TAG}", flush=True)
+    
     # Démarrer la vérification des matchs
-    if duo_puuid and CHANNEL_ID:
+    if CHANNEL_ID:
         check_matches.start()
         print(f"Bot prêt! Vérification des matchs toutes les {POLL_INTERVAL} secondes.", flush=True)
+        print(f"Tracking {len(tracked_players)} joueur(s)", flush=True)
     else:
-        print("⚠️ Bot non configuré correctement. Vérifiez vos variables d'environnement.", flush=True)
+        print("⚠️ CHANNEL_ID non configuré.", flush=True)
 
 @tasks.loop(seconds=POLL_INTERVAL)
 async def check_matches():
-    """Vérifie périodiquement les nouveaux matchs"""
-    global last_match_id, duo_puuid
+    """Vérifie périodiquement les nouveaux matchs pour tous les joueurs trackés"""
+    global tracked_players
 
-    if not duo_puuid or not CHANNEL_ID:
+    if not CHANNEL_ID or not tracked_players:
         return
-
+    
     channel = bot.get_channel(CHANNEL_ID)
     if not channel:
         print(f"⚠️ Impossible de trouver le canal avec l'ID {CHANNEL_ID}")
         return
+    
+    # Vérifier chaque joueur tracké
+    for puuid, player_info in list(tracked_players.items()):
+        await check_player_match(channel, puuid, player_info)
 
+async def check_player_match(channel, puuid, player_info):
+    """Vérifie les matchs pour un joueur spécifique"""
     try:
-        # Récupérer l'historique des matchs via MMR history (seul endpoint qui fonctionne)
-        match_history = []
-        latest_match_id = None
-        rr_change = 0
-        current_rank = None
+        name = player_info['name']
+        tag = player_info['tag']
+        last_match_id = player_info.get('last_match_id')
+        
+        # Récupérer l'historique MMR pour ce joueur
+        mmr_history = get_mmr_history(name, tag, region='eu', size=1)
 
-        if DUO_NAME and DUO_TAG:
-            mmr_history = get_mmr_history(DUO_NAME, DUO_TAG, region='eu', size=1)
-
-            if mmr_history is None:
-                # Rate limit, attendre avant de continuer
-                print("⏳ Rate limit détecté, passage au prochain cycle...")
-                return
-            elif mmr_history and len(mmr_history) > 0:
-                latest_mmr = mmr_history[0]
-                latest_match_id = latest_mmr.get('match_id')
-                rr_change = latest_mmr.get('mmr_change_to_last_game', 0)
-                current_rank = latest_mmr.get('currenttierpatched', 'Unknown')
-                current_rr = latest_mmr.get('ranking_in_tier', 0)  # RR actuel dans le tier
-                elo = latest_mmr.get('elo', 0)  # MMR/ELO total
-
-                print(f"✅ Match trouvé via MMR history: {latest_match_id}")
-            else:
-                print("Aucun match trouvé dans l'historique MMR")
-                return
-
+        if mmr_history is None:
+            # Rate limit, attendre avant de continuer
+            return
+        elif not mmr_history or len(mmr_history) == 0:
+            return
+        
+        latest_mmr = mmr_history[0]
+        latest_match_id = latest_mmr.get('match_id')
+        rr_change = latest_mmr.get('mmr_change_to_last_game', 0)
+        current_rank = latest_mmr.get('currenttierpatched', 'Unknown')
+        current_rr = latest_mmr.get('ranking_in_tier', 0)
+        elo = latest_mmr.get('elo', 0)
+        
         if not latest_match_id:
-            print("Aucun match_id trouvé")
             return
 
-        # Si c'est un nouveau match
+        # Si c'est un nouveau match pour ce joueur
         if latest_match_id != last_match_id:
-            print(f"Nouveau match détecté: {latest_match_id}")
-
+            print(f"[{name}#{tag}] Nouveau match détecté: {latest_match_id}")
+            
             # Vérifier si le match n'a pas déjà été posté dans le channel
             already_posted = await check_if_match_already_posted(channel, latest_match_id)
             if already_posted:
-                print(f"Match {latest_match_id} déjà posté dans le channel, ignoré")
-                last_match_id = latest_match_id  # Marquer comme vu pour ne plus le vérifier
-                save_last_match_id(latest_match_id)  # Sauvegarder aussi
+                print(f"[{name}#{tag}] Match déjà posté, ignoré")
+                update_last_match_for_player(puuid, latest_match_id)
                 return
 
             # Récupérer les détails du match
             match_data = get_match_details(latest_match_id)
-
+            
             if match_data is None:
-                # Rate limit, attendre avant de continuer
-                print("⏳ Rate limit détecté sur match details, passage au prochain cycle...")
+                # Rate limit
                 return
-
+            
             if match_data:
                 # Obtenir les stats du joueur
-                player_stats = get_player_stats_from_match(match_data, duo_puuid)
+                player_stats = get_player_stats_from_match(match_data, puuid)
 
                 if player_stats:
                     # Extraire les stats du joueur
@@ -312,7 +337,7 @@ async def check_matches():
 
                     embed = discord.Embed(
                         title=f"{result_emoji} Nouveau match terminé!",
-                        description=f"**{DUO_NAME}#{DUO_TAG}** a **{result_text.lower()}**",
+                        description=f"**{name}#{tag}** a **{result_text.lower()}**",
                         color=result_color,
                         timestamp=datetime.now(timezone.utc)
                     )
@@ -401,13 +426,12 @@ async def check_matches():
                     message_content = mention if mention else None
 
                     await channel.send(content=message_content, embed=embed)
-                    print(f"Notification envoyée pour le match {latest_match_id}")
+                    print(f"[{name}#{tag}] Notification envoyée pour le match {latest_match_id}")
                 else:
-                    print(f"Joueur non trouvé dans le match {latest_match_id}")
+                    print(f"[{name}#{tag}] Joueur non trouvé dans le match {latest_match_id}")
 
-            # Mettre à jour et sauvegarder le dernier match ID
-            last_match_id = latest_match_id
-            save_last_match_id(latest_match_id)
+            # Mettre à jour et sauvegarder le dernier match ID pour ce joueur
+            update_last_match_for_player(puuid, latest_match_id)
 
     except Exception as e:
         print(f"Erreur lors de la vérification des matchs: {e}")
@@ -427,19 +451,21 @@ async def test_command(ctx):
 @bot.command(name='status')
 async def status_command(ctx):
     """Affiche le statut du bot"""
-    global duo_puuid, last_match_id
-
+    global tracked_players
+    
     embed = discord.Embed(
         title="Status du bot",
         color=discord.Color.blue()
     )
-
+    
     embed.add_field(name="Bot", value="🟢 Actif", inline=True)
-    embed.add_field(name="Duo", value=f"{DUO_NAME}#{DUO_TAG}" if DUO_NAME and DUO_TAG else "Non configuré", inline=True)
-    embed.add_field(name="PUUID", value=duo_puuid[:8] + "..." if duo_puuid else "Non trouvé", inline=True)
-    embed.add_field(name="Dernier match", value=last_match_id if last_match_id else "Aucun", inline=False)
-    embed.add_field(name="Intervalle", value=f"{POLL_INTERVAL} secondes", inline=True)
-
+    embed.add_field(name="Joueurs trackés", value=f"{len(tracked_players)}", inline=True)
+    embed.add_field(name="Intervalle", value=f"{POLL_INTERVAL}s", inline=True)
+    
+    if tracked_players:
+        players_list = "\n".join([f"• {p['name']}#{p['tag']}" for p in tracked_players.values()])
+        embed.add_field(name="Liste des joueurs", value=players_list, inline=False)
+    
     await ctx.send(embed=embed)
 
 @bot.command(name='forcecheck')
@@ -450,24 +476,123 @@ async def force_check_command(ctx):
     await check_matches()
     await ctx.send("Vérification terminée!")
 
-@bot.command(name='testapi')
-async def test_api_command(ctx):
-    """Teste directement l'API pour voir ce qu'elle retourne"""
-    if not DUO_NAME or not DUO_TAG:
-        await ctx.send("❌ DUO_NAME et DUO_TAG doivent être configurés")
+@bot.command(name='addplayer')
+async def add_player_command(ctx, name: str, tag: str):
+    """Ajoute un joueur à tracker
+    Usage: !addplayer Lowack lowh
+    """
+    global tracked_players
+    
+    await ctx.send(f"🔍 Recherche de {name}#{tag}...")
+    
+    # Récupérer les infos du compte
+    account_info = get_account_info(name, tag)
+    if not account_info:
+        await ctx.send(f"❌ Joueur {name}#{tag} introuvable. Vérifiez le nom et le tag.")
         return
+    
+    puuid = account_info.get('puuid')
+    real_name = account_info.get('name')
+    real_tag = account_info.get('tag')
+    level = account_info.get('account_level')
+    region = account_info.get('region')
+    
+    # Vérifier si déjà tracké
+    if puuid in tracked_players:
+        await ctx.send(f"⚠️ {real_name}#{real_tag} est déjà dans la liste de tracking !")
+        return
+    
+    # Ajouter le joueur
+    add_tracked_player(real_name, real_tag, puuid)
+    
+    embed = discord.Embed(
+        title="✅ Joueur ajouté !",
+        description=f"**{real_name}#{real_tag}** est maintenant tracké",
+        color=discord.Color.green()
+    )
+    embed.add_field(name="Région", value=region.upper(), inline=True)
+    embed.add_field(name="Niveau", value=level, inline=True)
+    embed.add_field(name="Total trackés", value=len(tracked_players), inline=True)
+    
+    await ctx.send(embed=embed)
 
-    await ctx.send(f"🔍 Test de l'API pour {DUO_NAME}#{DUO_TAG}...")
+@bot.command(name='removeplayer')
+async def remove_player_command(ctx, name: str, tag: str):
+    """Retire un joueur du tracking
+    Usage: !removeplayer Lowack lowh
+    """
+    global tracked_players
+    
+    # Trouver le joueur dans la liste
+    puuid_to_remove = None
+    for puuid, player_info in tracked_players.items():
+        if player_info['name'].lower() == name.lower() and player_info['tag'].lower() == tag.lower():
+            puuid_to_remove = puuid
+            break
+    
+    if not puuid_to_remove:
+        await ctx.send(f"❌ {name}#{tag} n'est pas dans la liste de tracking")
+        return
+    
+    # Retirer le joueur
+    remove_tracked_player(puuid_to_remove)
+    await ctx.send(f"✅ {name}#{tag} retiré du tracking")
 
+@bot.command(name='listplayers')
+async def list_players_command(ctx):
+    """Liste tous les joueurs trackés
+    Usage: !listplayers
+    """
+    global tracked_players
+    
+    if not tracked_players:
+        await ctx.send("📋 Aucun joueur tracké pour le moment.\nUtilisez `!addplayer nom tag` pour en ajouter.")
+        return
+    
+    embed = discord.Embed(
+        title="📋 Joueurs trackés",
+        description=f"{len(tracked_players)} joueur(s) surveillé(s)",
+        color=discord.Color.blue()
+    )
+    
+    for player_info in tracked_players.values():
+        name = player_info['name']
+        tag = player_info['tag']
+        last_match = player_info.get('last_match_id', 'Aucun')
+        last_match_short = last_match[:8] + "..." if last_match and last_match != 'Aucun' else 'Aucun'
+        
+        embed.add_field(
+            name=f"{name}#{tag}",
+            value=f"Dernier match: `{last_match_short}`",
+            inline=False
+        )
+    
+    await ctx.send(embed=embed)
+
+@bot.command(name='testapi')
+async def test_api_command(ctx, name: str = None, tag: str = None):
+    """Teste directement l'API pour un joueur
+    Usage: !testapi Lowack lowh (ou !testapi pour le joueur par défaut)
+    """
+    # Utiliser le joueur par défaut si non spécifié
+    if not name or not tag:
+        if DUO_NAME and DUO_TAG:
+            name, tag = DUO_NAME, DUO_TAG
+        else:
+            await ctx.send("❌ Spécifiez un joueur: !testapi nom tag")
+            return
+    
+    await ctx.send(f"🔍 Test de l'API pour {name}#{tag}...")
+    
     # Tester l'endpoint account
-    account_info = get_account_info(DUO_NAME, DUO_TAG)
+    account_info = get_account_info(name, tag)
     if account_info:
         puuid = account_info.get('puuid')
         await ctx.send(f"✅ Compte trouvé - PUUID: `{puuid[:8]}...`")
-
+        
         # Tester l'endpoint MMR history (le seul qui fonctionne)
-        mmr_history = get_mmr_history(DUO_NAME, DUO_TAG, region='eu', size=3)
-
+        mmr_history = get_mmr_history(name, tag, region='eu', size=3)
+        
         if mmr_history is None:
             await ctx.send("⚠️ Rate limit atteint")
         elif mmr_history:
@@ -480,7 +605,7 @@ async def test_api_command(ctx):
                 map_name = mmr.get('map', {}).get('name', 'N/A')
                 result += f"{i}. {rank} | {'+' if rr > 0 else ''}{rr} RR | {map_name}\n"
                 result += f"   Match ID: {match_id[:8]}...\n"
-
+            
             await ctx.send(f"```\n{result}\n```")
         else:
             await ctx.send("❌ Aucun match trouvé dans l'historique MMR")
