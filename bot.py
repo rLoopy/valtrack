@@ -16,6 +16,8 @@ API_KEY = os.getenv('VALORANT_API_KEY', 'HDEV-c797c6bf-6699-49b0-9bc8-a369c13e5c
 DUO_NAME = os.getenv('DUO_NAME')  # Nom du joueur (ex: "Loopy")
 DUO_TAG = os.getenv('DUO_TAG')    # Tag du joueur (ex: "EUW")
 CHANNEL_ID = int(os.getenv('DISCORD_CHANNEL_ID', '0'))
+# ID de l'utilisateur à mentionner dans les notifications (optionnel)
+NOTIFY_USER_ID = os.getenv('NOTIFY_USER_ID', '265556280033148929')
 # Intervalle par défaut: 90 secondes pour respecter le rate limit (90 req/min pour Advanced key)
 # Cela fait environ 40 requêtes/heure, ce qui est sûr
 POLL_INTERVAL = int(os.getenv('POLL_INTERVAL', '90'))  # Secondes entre les vérifications
@@ -394,7 +396,11 @@ async def check_matches():
                     # Footer avec le match ID pour permettre la détection de doublons
                     embed.set_footer(text=f"Match ID: {latest_match_id}")
 
-                    await channel.send(embed=embed)
+                    # Mentionner l'utilisateur si l'ID est configuré
+                    mention = f"<@{NOTIFY_USER_ID}>" if NOTIFY_USER_ID else ""
+                    message_content = mention if mention else None
+                    
+                    await channel.send(content=message_content, embed=embed)
                     print(f"Notification envoyée pour le match {latest_match_id}")
                 else:
                     print(f"Joueur non trouvé dans le match {latest_match_id}")
