@@ -399,7 +399,7 @@ async def check_matches():
                     # Mentionner l'utilisateur si l'ID est configuré
                     mention = f"<@{NOTIFY_USER_ID}>" if NOTIFY_USER_ID else ""
                     message_content = mention if mention else None
-                    
+
                     await channel.send(content=message_content, embed=embed)
                     print(f"Notification envoyée pour le match {latest_match_id}")
                 else:

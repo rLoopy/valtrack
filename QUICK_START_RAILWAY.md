@@ -18,7 +18,7 @@ git add .
 git commit -m "Bot Discord Valorant - Ready for Railway"
 
 # Créer un repo sur GitHub et le lier (remplacez VOTRE_USERNAME)
-git remote add origin https://github.com/VOTRE_USERNAME/valtrack.git
+git remote add origin https://github.com/LoopyR/valtrack.git
 
 # Pousser sur GitHub
 git branch -M main
