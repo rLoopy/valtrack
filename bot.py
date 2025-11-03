@@ -264,6 +264,30 @@ async def check_matches():
                 player_stats = get_player_stats_from_match(match_data, duo_puuid)
 
                 if player_stats:
+                    # Extraire les stats du joueur
+                    stats = player_stats.get('stats', {})
+                    kills = stats.get('kills', 0)
+                    deaths = stats.get('deaths', 0)
+                    assists = stats.get('assists', 0)
+                    score = stats.get('score', 0)
+                    headshots = stats.get('headshots', 0)
+                    bodyshots = stats.get('bodyshots', 0)
+                    legshots = stats.get('legshots', 0)
+
+                    # Calculer l'ACS (Average Combat Score)
+                    rounds_played = match_data.get('metadata', {}).get('rounds_played', 1)
+                    acs = score // max(1, rounds_played)
+
+                    # K/D ratio
+                    kd_ratio = round(kills / max(1, deaths), 2)
+
+                    # Headshot %
+                    total_shots = headshots + bodyshots + legshots
+                    hs_percent = round((headshots / max(1, total_shots)) * 100) if total_shots > 0 else 0
+
+                    # Agent joué
+                    agent = player_stats.get('character', 'Unknown')
+
                     # Déterminer si c'est une victoire ou défaite
                     team = player_stats.get('team', '').upper()
                     teams = match_data.get('teams', {})
@@ -291,6 +315,13 @@ async def check_matches():
                         timestamp=datetime.now(timezone.utc)
                     )
 
+                    # Agent et score du match
+                    embed.add_field(
+                        name="🎭 Agent",
+                        value=agent,
+                        inline=True
+                    )
+
                     embed.add_field(
                         name="📊 Score",
                         value=f"{blue_rounds_won} - {red_rounds_won}",
@@ -304,6 +335,25 @@ async def check_matches():
                             value=f"{'+' if rr_change > 0 else ''}{rr_change} RR",
                             inline=True
                         )
+
+                    # Stats de performance
+                    embed.add_field(
+                        name="⚔️ K/D/A",
+                        value=f"{kills}/{deaths}/{assists}",
+                        inline=True
+                    )
+
+                    embed.add_field(
+                        name="📈 ACS",
+                        value=f"{acs}",
+                        inline=True
+                    )
+
+                    embed.add_field(
+                        name="🎯 K/D",
+                        value=f"{kd_ratio}",
+                        inline=True
+                    )
 
                     if current_rank:
                         # Afficher le rang avec le nombre de RR actuel
