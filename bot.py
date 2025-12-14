@@ -7,6 +7,15 @@ import os
 import json
 from dotenv import load_dotenv
 from datetime import datetime, timezone
+import io
+try:
+    import matplotlib
+    matplotlib.use('Agg')  # Backend sans interface graphique
+    import matplotlib.pyplot as plt
+    MATPLOTLIB_AVAILABLE = True
+except ImportError:
+    MATPLOTLIB_AVAILABLE = False
+    print("⚠️ matplotlib non disponible. Les graphiques de rang ne seront pas disponibles.")
 
 # Charger les variables d'environnement
 load_dotenv()
@@ -193,6 +202,52 @@ def get_mmr_history(name, tag, region='eu', size=10):
         print(f"Erreur lors de la récupération de l'historique MMR: {e}")
         return []
 
+class MatchDetailsView(discord.ui.View):
+    """Boutons interactifs pour les notifications de match"""
+    def __init__(self, match_id: str, player_name: str, player_tag: str):
+        super().__init__(timeout=3600)  # 1 heure
+        self.match_id = match_id
+        self.player_name = player_name
+        self.player_tag = player_tag
+
+        # Ajouter le bouton tracker.gg
+        tracker_url = f"https://tracker.gg/valorant/match/{match_id}"
+        self.add_item(discord.ui.Button(
+            label="Voir sur Tracker.gg",
+            url=tracker_url,
+            emoji="📊",
+            style=discord.ButtonStyle.link
+        ))
+
+    @discord.ui.button(label="Réactions", emoji="👍", style=discord.ButtonStyle.secondary)
+    async def reaction_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Bouton pour ajouter une réaction rapide"""
+        await interaction.response.send_message(
+            "Choisissez votre réaction:",
+            view=ReactionView(),
+            ephemeral=True
+        )
+
+class ReactionView(discord.ui.View):
+    """Vue pour les réactions rapides"""
+    def __init__(self):
+        super().__init__(timeout=60)
+
+    @discord.ui.button(label="GG", emoji="🔥", style=discord.ButtonStyle.success)
+    async def gg_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("🔥 GG envoyé !", ephemeral=True)
+        await interaction.message.edit(view=None)
+
+    @discord.ui.button(label="RIP", emoji="💀", style=discord.ButtonStyle.secondary)
+    async def rip_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("💀 RIP envoyé !", ephemeral=True)
+        await interaction.message.edit(view=None)
+
+    @discord.ui.button(label="Carry", emoji="👑", style=discord.ButtonStyle.primary)
+    async def carry_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("👑 Carry king !", ephemeral=True)
+        await interaction.message.edit(view=None)
+
 @bot.event
 async def on_ready():
     """Événement déclenché quand le bot est prêt"""
@@ -255,8 +310,8 @@ async def check_player_match(channel, puuid, player_info):
         tag = player_info['tag']
         last_match_id = player_info.get('last_match_id')
 
-        # Récupérer l'historique MMR pour ce joueur
-        mmr_history = get_mmr_history(name, tag, region='eu', size=1)
+        # Récupérer l'historique MMR pour ce joueur (5 matchs pour détecter les streaks)
+        mmr_history = get_mmr_history(name, tag, region='eu', size=5)
 
         if mmr_history is None:
             # Rate limit, attendre avant de continuer
@@ -270,6 +325,21 @@ async def check_player_match(channel, puuid, player_info):
         current_rank = latest_mmr.get('currenttierpatched', 'Unknown')
         current_rr = latest_mmr.get('ranking_in_tier', 0)
         elo = latest_mmr.get('elo', 0)
+
+        # Détecter les streaks
+        current_streak = 0
+        streak_type = None  # 'win' ou 'loss'
+        for i, match in enumerate(mmr_history):
+            match_rr = match.get('mmr_change_to_last_game', 0)
+            is_win = match_rr > 0
+
+            if i == 0:
+                streak_type = 'win' if is_win else 'loss'
+                current_streak = 1
+            elif (streak_type == 'win' and is_win) or (streak_type == 'loss' and not is_win):
+                current_streak += 1
+            else:
+                break
 
         if not latest_match_id:
             return
@@ -341,12 +411,51 @@ async def check_player_match(channel, puuid, player_info):
                     result_text = "VICTOIRE" if won else "DÉFAITE"
                     result_color = discord.Color.green() if won else discord.Color.red()
 
+                    # Déterminer les badges de performance
+                    badges = []
+                    if acs >= 300:
+                        badges.append("🔥 DOMINATION")
+                    elif acs >= 250:
+                        badges.append("💪 EXCELLENT")
+                    elif acs >= 200:
+                        badges.append("👍 SOLIDE")
+
+                    if kd_ratio >= 2.0:
+                        badges.append("💀 KILLER")
+                    elif kd_ratio >= 1.5:
+                        badges.append("⚔️ EFFICACE")
+
+                    if hs_percent >= 40:
+                        badges.append("🎯 HEADSHOT MACHINE")
+
+                    # Vérifier si c'est le meilleur de son équipe (MVP)
+                    team_players = [p for p in match_data.get('players', {}).get('all_players', []) if p.get('team') == team]
+                    if team_players:
+                        best_acs = max(p.get('stats', {}).get('score', 0) // max(1, rounds_played) for p in team_players)
+                        if acs == best_acs:
+                            badges.insert(0, "👑 MVP")
+
+                    badges_text = " ".join(badges) if badges else ""
+
+                    # Ajouter le streak si significatif (3+)
+                    streak_text = ""
+                    if current_streak >= 3:
+                        streak_emoji = "🔥" if streak_type == 'win' else "❄️"
+                        streak_word = "victoires" if streak_type == 'win' else "défaites"
+                        streak_text = f"\n{streak_emoji} **{current_streak} {streak_word} d'affilée !**"
+
                     embed = discord.Embed(
                         title=f"{result_emoji} Nouveau match terminé!",
-                        description=f"**{name}#{tag}** a **{result_text.lower()}**",
+                        description=f"**{name}#{tag}** a **{result_text.lower()}**\n{badges_text}{streak_text}",
                         color=result_color,
                         timestamp=datetime.now(timezone.utc)
                     )
+
+                    # Ajouter l'image de l'agent (thumbnail)
+                    # Les URLs des images d'agents sont disponibles dans l'API
+                    agent_img = player_stats.get('assets', {}).get('agent', {}).get('small')
+                    if agent_img:
+                        embed.set_thumbnail(url=agent_img)
 
                     # Agent et score du match
                     embed.add_field(
@@ -385,6 +494,12 @@ async def check_player_match(channel, puuid, player_info):
                     embed.add_field(
                         name="🎯 K/D",
                         value=f"{kd_ratio}",
+                        inline=True
+                    )
+
+                    embed.add_field(
+                        name="🎯 HS%",
+                        value=f"{hs_percent}%",
                         inline=True
                     )
 
@@ -427,11 +542,14 @@ async def check_player_match(channel, puuid, player_info):
                     # Footer avec le match ID pour permettre la détection de doublons
                     embed.set_footer(text=f"Match ID: {latest_match_id}")
 
+                    # Créer la vue avec les boutons interactifs
+                    view = MatchDetailsView(latest_match_id, name, tag)
+
                     # Mentionner l'utilisateur si l'ID est configuré
                     mention = f"<@{NOTIFY_USER_ID}>" if NOTIFY_USER_ID else ""
                     message_content = mention if mention else None
 
-                    await channel.send(content=message_content, embed=embed)
+                    await channel.send(content=message_content, embed=embed, view=view)
                     print(f"[{name}#{tag}] Notification envoyée pour le match {latest_match_id}")
                 else:
                     print(f"[{name}#{tag}] Joueur non trouvé dans le match {latest_match_id}")
@@ -570,6 +688,264 @@ async def list_players_command(interaction: discord.Interaction):
         )
 
     await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name='stats', description='Affiche les statistiques détaillées d\'un joueur')
+@app_commands.describe(name='Nom du joueur (optionnel)', tag='Tag du joueur (optionnel)')
+async def stats_command(interaction: discord.Interaction, name: str = None, tag: str = None):
+    """Affiche les statistiques détaillées d'un joueur"""
+    global tracked_players
+
+    # Si pas de joueur spécifié, utiliser le premier joueur tracké ou le joueur par défaut
+    if not name or not tag:
+        if tracked_players:
+            first_player = list(tracked_players.values())[0]
+            name = first_player['name']
+            tag = first_player['tag']
+        elif DUO_NAME and DUO_TAG:
+            name, tag = DUO_NAME, DUO_TAG
+        else:
+            await interaction.response.send_message("❌ Spécifiez un joueur: /stats nom:xxx tag:xxx")
+            return
+
+    await interaction.response.send_message(f"📊 Récupération des statistiques de {name}#{tag}...")
+
+    # Récupérer l'historique MMR (50 derniers matchs)
+    mmr_history = get_mmr_history(name, tag, region='eu', size=50)
+
+    if mmr_history is None:
+        await interaction.followup.send("⚠️ Rate limit atteint, réessayez dans quelques secondes")
+        return
+    elif not mmr_history:
+        await interaction.followup.send(f"❌ Aucun match trouvé pour {name}#{tag}")
+        return
+
+    # Calculer les statistiques
+    total_matches = len(mmr_history)
+    wins = sum(1 for m in mmr_history if m.get('mmr_change_to_last_game', 0) > 0)
+    losses = total_matches - wins
+    winrate = round((wins / total_matches) * 100, 1) if total_matches > 0 else 0
+
+    # Calculer le RR total gagné/perdu
+    total_rr_change = sum(m.get('mmr_change_to_last_game', 0) for m in mmr_history)
+    avg_rr_change = round(total_rr_change / total_matches, 1) if total_matches > 0 else 0
+
+    # Rang actuel
+    current_rank = mmr_history[0].get('currenttierpatched', 'Unknown')
+    current_rr = mmr_history[0].get('ranking_in_tier', 0)
+    current_elo = mmr_history[0].get('elo', 0)
+
+    # Détecter les streaks
+    current_streak = 0
+    last_result = None
+    for match in mmr_history:
+        rr = match.get('mmr_change_to_last_game', 0)
+        won = rr > 0
+        if last_result is None:
+            last_result = won
+            current_streak = 1
+        elif last_result == won:
+            current_streak += 1
+        else:
+            break
+
+    streak_emoji = "🔥" if last_result and current_streak >= 3 else "❄️" if not last_result and current_streak >= 3 else ""
+    streak_text = f"{'Victoire' if last_result else 'Défaite'}s" if current_streak > 1 else ""
+
+    # Créer l'embed
+    embed_color = discord.Color.green() if winrate >= 50 else discord.Color.red()
+    embed = discord.Embed(
+        title=f"📊 Statistiques de {name}#{tag}",
+        description=f"Basées sur les {total_matches} derniers matchs compétitifs",
+        color=embed_color,
+        timestamp=datetime.now(timezone.utc)
+    )
+
+    # Rang actuel
+    embed.add_field(
+        name="🏆 Rang actuel",
+        value=f"**{current_rank}**\n{current_rr} RR",
+        inline=True
+    )
+
+    # ELO
+    if current_elo > 0:
+        embed.add_field(
+            name="📊 ELO",
+            value=f"{current_elo}",
+            inline=True
+        )
+
+    # Winrate
+    embed.add_field(
+        name="📈 Winrate",
+        value=f"**{winrate}%**\n{wins}W - {losses}L",
+        inline=True
+    )
+
+    # RR moyen
+    rr_emoji = "📈" if avg_rr_change > 0 else "📉"
+    embed.add_field(
+        name=f"{rr_emoji} RR Moyen",
+        value=f"{'+' if avg_rr_change > 0 else ''}{avg_rr_change} RR/match",
+        inline=True
+    )
+
+    # RR total
+    embed.add_field(
+        name="💰 RR Total",
+        value=f"{'+' if total_rr_change > 0 else ''}{total_rr_change} RR",
+        inline=True
+    )
+
+    # Streak actuelle
+    if current_streak > 1:
+        embed.add_field(
+            name=f"{streak_emoji} Série actuelle",
+            value=f"**{current_streak}** {streak_text}",
+            inline=True
+        )
+
+    # Top 3 des maps jouées
+    map_counts = {}
+    for match in mmr_history:
+        map_name = match.get('map', {}).get('name', 'Unknown')
+        map_counts[map_name] = map_counts.get(map_name, 0) + 1
+
+    top_maps = sorted(map_counts.items(), key=lambda x: x[1], reverse=True)[:3]
+    if top_maps:
+        maps_text = "\n".join([f"{i+1}. {map_name} ({count} matchs)" for i, (map_name, count) in enumerate(top_maps)])
+        embed.add_field(
+            name="🗺️ Maps les plus jouées",
+            value=maps_text,
+            inline=False
+        )
+
+    embed.set_footer(text=f"Historique des {total_matches} derniers matchs compétitifs")
+
+    await interaction.followup.send(embed=embed)
+
+@bot.tree.command(name='rankhistory', description='Affiche l\'historique de rang avec graphique')
+@app_commands.describe(name='Nom du joueur (optionnel)', tag='Tag du joueur (optionnel)')
+async def rank_history_command(interaction: discord.Interaction, name: str = None, tag: str = None):
+    """Affiche l'historique de rang avec un graphique de progression"""
+    global tracked_players
+
+    if not MATPLOTLIB_AVAILABLE:
+        await interaction.response.send_message("❌ Cette fonctionnalité nécessite matplotlib. Installez-le avec `pip install matplotlib`")
+        return
+
+    # Si pas de joueur spécifié, utiliser le premier joueur tracké ou le joueur par défaut
+    if not name or not tag:
+        if tracked_players:
+            first_player = list(tracked_players.values())[0]
+            name = first_player['name']
+            tag = first_player['tag']
+        elif DUO_NAME and DUO_TAG:
+            name, tag = DUO_NAME, DUO_TAG
+        else:
+            await interaction.response.send_message("❌ Spécifiez un joueur: /rankhistory nom:xxx tag:xxx")
+            return
+
+    await interaction.response.send_message(f"📈 Génération de l'historique de rang pour {name}#{tag}...")
+
+    # Récupérer l'historique MMR (50 derniers matchs)
+    mmr_history = get_mmr_history(name, tag, region='eu', size=50)
+
+    if mmr_history is None:
+        await interaction.followup.send("⚠️ Rate limit atteint, réessayez dans quelques secondes")
+        return
+    elif not mmr_history or len(mmr_history) < 2:
+        await interaction.followup.send(f"❌ Pas assez de matchs pour générer un historique")
+        return
+
+    # Inverser pour avoir l'ordre chronologique
+    mmr_history = list(reversed(mmr_history))
+
+    # Extraire les données pour le graphique
+    match_numbers = list(range(1, len(mmr_history) + 1))
+    elos = [m.get('elo', 0) for m in mmr_history]
+    rr_changes = [m.get('mmr_change_to_last_game', 0) for m in mmr_history]
+
+    # Calculer le RR cumulatif
+    cumulative_rr = []
+    total = 0
+    for rr in rr_changes:
+        total += rr
+        cumulative_rr.append(total)
+
+    # Créer le graphique
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
+    fig.suptitle(f'Historique de rang - {name}#{tag}', fontsize=16, fontweight='bold')
+
+    # Graphique 1: ELO au fil du temps
+    ax1.plot(match_numbers, elos, marker='o', linewidth=2, markersize=4, color='#FF4655')
+    ax1.set_xlabel('Numéro de match', fontsize=11)
+    ax1.set_ylabel('ELO', fontsize=11)
+    ax1.set_title('Évolution de l\'ELO', fontsize=13)
+    ax1.grid(True, alpha=0.3)
+    ax1.axhline(y=elos[-1], color='gray', linestyle='--', alpha=0.5, label=f'ELO actuel: {elos[-1]}')
+    ax1.legend()
+
+    # Graphique 2: Changement RR cumulatif
+    colors = ['green' if rr > 0 else 'red' for rr in cumulative_rr]
+    ax2.bar(match_numbers, cumulative_rr, color=colors, alpha=0.6)
+    ax2.plot(match_numbers, cumulative_rr, color='blue', linewidth=2, marker='o', markersize=3, label='RR Cumulatif')
+    ax2.set_xlabel('Numéro de match', fontsize=11)
+    ax2.set_ylabel('RR Cumulatif', fontsize=11)
+    ax2.set_title('Gain/Perte de RR cumulatif', fontsize=13)
+    ax2.grid(True, alpha=0.3)
+    ax2.axhline(y=0, color='black', linestyle='-', alpha=0.3)
+    ax2.legend()
+
+    # Ajuster l'espacement
+    plt.tight_layout()
+
+    # Sauvegarder le graphique en mémoire
+    buffer = io.BytesIO()
+    plt.savefig(buffer, format='png', dpi=150, bbox_inches='tight')
+    buffer.seek(0)
+    plt.close()
+
+    # Créer l'embed avec les stats
+    current_rank = mmr_history[-1].get('currenttierpatched', 'Unknown')
+    current_rr = mmr_history[-1].get('ranking_in_tier', 0)
+    current_elo = mmr_history[-1].get('elo', 0)
+
+    # Calculer les stats
+    total_rr_change = cumulative_rr[-1]
+    highest_elo = max(elos)
+    lowest_elo = min(elos)
+
+    embed = discord.Embed(
+        title=f"📈 Historique de rang - {name}#{tag}",
+        description=f"Analyse des {len(mmr_history)} derniers matchs compétitifs",
+        color=discord.Color.blue(),
+        timestamp=datetime.now(timezone.utc)
+    )
+
+    embed.add_field(
+        name="🏆 Rang actuel",
+        value=f"**{current_rank}**\n{current_rr} RR | {current_elo} ELO",
+        inline=True
+    )
+
+    embed.add_field(
+        name="📊 Progression",
+        value=f"{'+' if total_rr_change > 0 else ''}{total_rr_change} RR",
+        inline=True
+    )
+
+    embed.add_field(
+        name="📈 ELO Max/Min",
+        value=f"Max: {highest_elo}\nMin: {lowest_elo}",
+        inline=True
+    )
+
+    # Créer le fichier Discord
+    file = discord.File(buffer, filename='rank_history.png')
+    embed.set_image(url='attachment://rank_history.png')
+
+    await interaction.followup.send(embed=embed, file=file)
 
 @bot.tree.command(name='testapi', description='Teste l\'API Valorant pour un joueur')
 @app_commands.describe(name='Nom du joueur (optionnel)', tag='Tag du joueur (optionnel)')
