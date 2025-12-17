@@ -8,6 +8,7 @@ import json
 from dotenv import load_dotenv
 from datetime import datetime, timezone
 import io
+import lol_tracker  # Module pour League of Legends
 try:
     import matplotlib
     matplotlib.use('Agg')  # Backend sans interface graphique
@@ -32,9 +33,11 @@ load_dotenv()
 # Configuration
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 API_KEY = os.getenv('VALORANT_API_KEY', 'HDEV-c797c6bf-6699-49b0-9bc8-a369c13e5cac')
+RIOT_API_KEY = os.getenv('RIOT_API_KEY')  # Clé API Riot pour LoL
 DUO_NAME = os.getenv('DUO_NAME')  # Nom du joueur (ex: "Loopy")
 DUO_TAG = os.getenv('DUO_TAG')    # Tag du joueur (ex: "EUW")
 CHANNEL_ID = int(os.getenv('DISCORD_CHANNEL_ID', '0'))
+LOL_CHANNEL_ID = int(os.getenv('LOL_CHANNEL_ID', '0'))  # Channel pour les notifications LoL (optionnel, sinon même que Valorant)
 # ID de l'utilisateur à mentionner dans les notifications (optionnel)
 NOTIFY_USER_ID = os.getenv('NOTIFY_USER_ID', '265556280033148929')
 # Intervalle par défaut: 90 secondes pour respecter le rate limit (90 req/min pour Advanced key)
@@ -45,18 +48,40 @@ POLL_INTERVAL = int(os.getenv('POLL_INTERVAL', '90'))  # Secondes entre les vér
 DATABASE_URL = os.getenv('DATABASE_URL')
 db_connection = None
 
+# Régions LoL disponibles
+LOL_REGIONS = {
+    'euw': 'europe',
+    'eun': 'europe',
+    'na': 'americas',
+    'br': 'americas',
+    'lan': 'americas',
+    'las': 'americas',
+    'oce': 'sea',
+    'kr': 'asia',
+    'jp': 'asia',
+}
+
 # Configuration Discord
 intents = discord.Intents.default()
 # Plus besoin de message_content pour les slash commands !
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# Base URL de l'API
+# Base URL de l'API Valorant
 API_BASE_URL = 'https://api.henrikdev.xyz/valorant/v1'
+
+# Base URLs de l'API Riot (LoL)
+RIOT_API_BASE = {
+    'europe': 'https://europe.api.riotgames.com',
+    'americas': 'https://americas.api.riotgames.com',
+    'asia': 'https://asia.api.riotgames.com',
+    'sea': 'https://sea.api.riotgames.com',
+}
 
 # Stockage des joueurs trackés et derniers matchs
 TRACKED_PLAYERS_FILE = 'tracked_players.json'
 LAST_MATCH_FILE = 'last_match.json'
-tracked_players = {}  # Format: {puuid: {name, tag, last_match_id}}
+tracked_players = {}  # Format: {puuid: {name, tag, last_match_id}} - Valorant
+tracked_players_lol = {}  # Format: {puuid: {name, region, last_match_id}} - LoL
 
 # Variables de compatibilité (gardées pour le premier joueur par défaut)
 duo_puuid = None
@@ -75,7 +100,7 @@ def init_database():
         db_connection = psycopg2.connect(DATABASE_URL)
         cursor = db_connection.cursor()
 
-        # Créer la table des joueurs trackés
+        # Créer la table des joueurs trackés Valorant
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS tracked_players (
                 puuid VARCHAR(255) PRIMARY KEY,
@@ -87,9 +112,21 @@ def init_database():
             )
         """)
 
+        # Créer la table des joueurs trackés LoL
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS tracked_players_lol (
+                puuid VARCHAR(255) PRIMARY KEY,
+                summoner_name VARCHAR(255) NOT NULL,
+                region VARCHAR(50) NOT NULL,
+                last_match_id VARCHAR(255),
+                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
         db_connection.commit()
         cursor.close()
-        print("✅ Base de données PostgreSQL connectée et initialisée")
+        print("✅ Base de données PostgreSQL connectée et initialisée (Valorant + LoL)")
         return True
     except Exception as e:
         print(f"⚠️ Erreur lors de l'initialisation de la DB: {e}")
@@ -376,10 +413,14 @@ async def on_ready():
     except Exception as e:
         print(f"⚠️ Erreur lors de la synchronisation des commandes: {e}", flush=True)
 
-    # Charger les joueurs trackés
+    # Charger les joueurs trackés Valorant
     global tracked_players, duo_puuid
     tracked_players = load_tracked_players()
-    print(f"Joueurs trackés chargés: {len(tracked_players)}", flush=True)
+    print(f"Joueurs Valorant trackés chargés: {len(tracked_players)}", flush=True)
+
+    # Charger les joueurs trackés LoL
+    lol_tracker.tracked_players_lol = lol_tracker.load_lol_players_from_db(db_connection)
+    print(f"Joueurs LoL trackés chargés: {len(lol_tracker.tracked_players_lol)}", flush=True)
 
     # Ajouter le joueur par défaut depuis .env s'il existe et n'est pas déjà tracké
     if DUO_NAME and DUO_TAG:
@@ -1104,6 +1145,105 @@ async def test_api_command(interaction: discord.Interaction, name: str = None, t
             await interaction.followup.send("❌ Aucun match trouvé dans l'historique MMR")
     else:
         await interaction.followup.send("❌ Impossible de récupérer les informations du compte")
+
+# ==================== COMMANDES LEAGUE OF LEGENDS ====================
+
+@bot.tree.command(name='addplayer-lol', description='Ajoute un invocateur LoL à tracker')
+@app_commands.describe(
+    summoner_name='Nom de l\'invocateur (ex: Faker)',
+    region='Région (euw1, na1, kr, etc.)'
+)
+@app_commands.choices(region=[
+    app_commands.Choice(name='EUW (Europe West)', value='euw1'),
+    app_commands.Choice(name='EUNE (Europe Nordic & East)', value='eun1'),
+    app_commands.Choice(name='NA (North America)', value='na1'),
+    app_commands.Choice(name='KR (Korea)', value='kr'),
+    app_commands.Choice(name='BR (Brazil)', value='br1'),
+])
+async def add_lol_player_command(interaction: discord.Interaction, summoner_name: str, region: str):
+    """Ajoute un invocateur LoL à tracker"""
+    await interaction.response.send_message(f"🔍 Recherche de l'invocateur **{summoner_name}** sur **{region.upper()}**...")
+
+    # Récupérer les infos de l'invocateur
+    summoner_info = lol_tracker.get_summoner_by_name(summoner_name, region)
+    if not summoner_info:
+        await interaction.followup.send(f"❌ Invocateur **{summoner_name}** introuvable sur **{region.upper()}**. Vérifiez le nom et la région.")
+        return
+
+    puuid = summoner_info.get('puuid')
+    summoner_name_real = summoner_info.get('name')
+    summoner_level = summoner_info.get('summonerLevel')
+    summoner_id = summoner_info.get('id')
+
+    # Vérifier si déjà tracké
+    if puuid in lol_tracker.tracked_players_lol:
+        await interaction.followup.send(f"⚠️ **{summoner_name_real}** est déjà dans la liste de tracking LoL !")
+        return
+
+    # Récupérer les stats ranked
+    ranked_stats = lol_tracker.get_summoner_ranked_stats(summoner_id, region)
+
+    # Ajouter le joueur
+    lol_tracker.add_lol_player(db_connection, summoner_name_real, region, puuid)
+
+    embed = discord.Embed(
+        title="✅ Invocateur ajouté !",
+        description=f"**{summoner_name_real}** (Niveau {summoner_level}) est maintenant tracké",
+        color=discord.Color.blue()
+    )
+    embed.add_field(name="Région", value=region.upper(), inline=True)
+    embed.add_field(name="Niveau", value=summoner_level, inline=True)
+
+    # Ajouter les stats ranked si disponibles
+    if ranked_stats:
+        for queue in ranked_stats:
+            if queue['queueType'] == 'RANKED_SOLO_5x5':
+                tier = queue['tier']
+                rank = queue['rank']
+                lp = queue['leaguePoints']
+                wins = queue['wins']
+                losses = queue['losses']
+
+                tier_emoji = lol_tracker.get_tier_emoji(tier)
+                rank_display = lol_tracker.get_rank_display(tier, rank, lp)
+
+                embed.add_field(
+                    name=f"{tier_emoji} Ranked Solo/Duo",
+                    value=f"{rank_display}\n{wins}W - {losses}L",
+                    inline=False
+                )
+                break
+
+    embed.add_field(name="Total trackés (LoL)", value=len(lol_tracker.tracked_players_lol), inline=True)
+
+    await interaction.followup.send(embed=embed)
+
+@bot.tree.command(name='listplayers-lol', description='Liste tous les invocateurs LoL trackés')
+async def list_lol_players_command(interaction: discord.Interaction):
+    """Liste tous les invocateurs LoL trackés"""
+    if not lol_tracker.tracked_players_lol:
+        await interaction.response.send_message("📋 Aucun invocateur LoL tracké pour le moment.\nUtilisez `/addplayer-lol` pour en ajouter.")
+        return
+
+    embed = discord.Embed(
+        title="📋 Invocateurs LoL trackés",
+        description=f"{len(lol_tracker.tracked_players_lol)} invocateur(s) surveillé(s)",
+        color=discord.Color.blue()
+    )
+
+    for player_info in lol_tracker.tracked_players_lol.values():
+        summoner_name = player_info['summoner_name']
+        region = player_info['region']
+        last_match = player_info.get('last_match_id', 'Aucun')
+        last_match_short = last_match[:8] + "..." if last_match and last_match != 'Aucun' else 'Aucun'
+
+        embed.add_field(
+            name=f"{summoner_name} ({region.upper()})",
+            value=f"Dernier match: `{last_match_short}`",
+            inline=False
+        )
+
+    await interaction.response.send_message(embed=embed)
 
 # Lancer le bot
 if __name__ == '__main__':
