@@ -418,11 +418,14 @@ def create_lol_match_embed(match_info, discord_module):
 
     badges_text = " ".join(badges) if badges else ""
 
-    # Détecter si c'est un jungler (role)
+    # Calculate CS/min (needed for toxic messages)
+    cs_per_min = round(cs / (game_duration / 60), 1)
+
+    # Detect if jungler (role)
     role = player_stats.get('teamPosition', '').upper()
     is_jungler = role == 'JUNGLE' or player_stats.get('individualPosition', '').upper() == 'JUNGLE'
 
-    # Messages toxiques pour les défaites 😈
+    # Toxic messages for losses 😈
     toxic_messages = []
     if not won:
         # JUNGLE DIFF obligatoire pour les junglers
@@ -460,9 +463,8 @@ def create_lol_match_embed(match_info, discord_module):
             import random
             toxic_messages.append(random.choice(default_toxic))
 
-    # Couleur selon victoire/défaite
+    # Color based on win/loss
     result_emoji = '✅' if won else '💀'
-    result_text = "VICTOIRE" if won else "DÉFAITE HONTEUSE"
     result_color = discord_module.Color.green() if won else discord_module.Color.dark_red()
 
     # Description différente selon win/loss
@@ -514,7 +516,6 @@ def create_lol_match_embed(match_info, discord_module):
     )
 
     # CS (Creep Score)
-    cs_per_min = round(cs / (game_duration / 60), 1)
     embed.add_field(
         name="🗡️ CS",
         value=f"{cs} ({cs_per_min}/min)",
@@ -556,14 +557,14 @@ def create_lol_match_embed(match_info, discord_module):
         inline=True
     )
 
-    # Mode de jeu
+    # Game mode
     embed.add_field(
         name="🎮 Mode",
         value=game_mode,
         inline=False
     )
 
-    # Multi-kills si présents
+    # Multi-kills if present
     if penta_kills > 0 or quadra_kills > 0 or triple_kills > 0:
         multikills = []
         if penta_kills > 0:
