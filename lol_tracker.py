@@ -116,27 +116,51 @@ def update_last_match_for_lol_player(db_connection, puuid, match_id):
 
 # ==================== FONCTIONS API RIOT ====================
 
-def get_summoner_by_name(summoner_name, region='euw1'):
-    """Récupère les informations d'un invocateur LoL par son nom"""
+def get_account_by_riot_id(game_name, tag_line, routing_region='europe'):
+    """Récupère le compte Riot par Riot ID (game_name#tag_line)"""
     if not RIOT_API_KEY:
         print("⚠️ RIOT_API_KEY non configurée")
         return None
-
-    # Encoder le nom pour l'URL
-    summoner_name_encoded = requests.utils.quote(summoner_name)
-    url = f'https://{region}.api.riotgames.com/lol/summoner/v4/summoners/by-name/{summoner_name_encoded}'
+    
+    regional_endpoint = RIOT_API_BASE.get(routing_region, RIOT_API_BASE['europe'])
+    url = f'{regional_endpoint}/riot/account/v1/accounts/by-riot-id/{game_name}/{tag_line}'
     headers = {'X-Riot-Token': RIOT_API_KEY}
-
+    
     try:
         response = requests.get(url, headers=headers, timeout=10)
-
+        
         if response.status_code == 429:
             print("⚠️ Rate limit atteint sur l'API Riot")
             return None
         elif response.status_code == 404:
-            print(f"❌ Invocateur {summoner_name} introuvable sur {region}")
+            print(f"❌ Compte Riot {game_name}#{tag_line} introuvable")
             return None
+        
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"Erreur lors de la récupération du compte Riot: {e}")
+        return None
 
+def get_summoner_by_puuid(puuid, region='euw1'):
+    """Récupère les informations d'un invocateur LoL par son PUUID"""
+    if not RIOT_API_KEY:
+        print("⚠️ RIOT_API_KEY non configurée")
+        return None
+    
+    url = f'https://{region}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/{puuid}'
+    headers = {'X-Riot-Token': RIOT_API_KEY}
+    
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        
+        if response.status_code == 429:
+            print("⚠️ Rate limit atteint sur l'API Riot")
+            return None
+        elif response.status_code == 404:
+            print(f"❌ Invocateur introuvable")
+            return None
+        
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:

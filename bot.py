@@ -1150,7 +1150,7 @@ async def test_api_command(interaction: discord.Interaction, name: str = None, t
 
 @bot.tree.command(name='addplayer-lol', description='Ajoute un invocateur LoL à tracker')
 @app_commands.describe(
-    summoner_name='Nom de l\'invocateur (ex: Faker)',
+    riot_id='Riot ID complet (ex: ThroatGoat#Glucc)',
     region='Région (euw1, na1, kr, etc.)'
 )
 @app_commands.choices(region=[
@@ -1160,35 +1160,54 @@ async def test_api_command(interaction: discord.Interaction, name: str = None, t
     app_commands.Choice(name='KR (Korea)', value='kr'),
     app_commands.Choice(name='BR (Brazil)', value='br1'),
 ])
-async def add_lol_player_command(interaction: discord.Interaction, summoner_name: str, region: str):
+async def add_lol_player_command(interaction: discord.Interaction, riot_id: str, region: str):
     """Ajoute un invocateur LoL à tracker"""
-    await interaction.response.send_message(f"🔍 Recherche de l'invocateur **{summoner_name}** sur **{region.upper()}**...")
-
-    # Récupérer les infos de l'invocateur
-    summoner_info = lol_tracker.get_summoner_by_name(summoner_name, region)
-    if not summoner_info:
-        await interaction.followup.send(f"❌ Invocateur **{summoner_name}** introuvable sur **{region.upper()}**. Vérifiez le nom et la région.")
+    
+    # Parser le Riot ID (nom#tag)
+    if '#' not in riot_id:
+        await interaction.response.send_message(f"❌ Format invalide ! Utilisez le format **Nom#Tag** (ex: ThroatGoat#Glucc)")
         return
-
-    puuid = summoner_info.get('puuid')
-    summoner_name_real = summoner_info.get('name')
+    
+    game_name, tag_line = riot_id.split('#', 1)
+    
+    await interaction.response.send_message(f"🔍 Recherche de l'invocateur **{riot_id}** sur **{region.upper()}**...")
+    
+    # Déterminer la routing region
+    routing_region = lol_tracker.REGION_TO_ROUTING.get(region, 'europe')
+    
+    # Récupérer le compte Riot (pour avoir le PUUID)
+    account_info = lol_tracker.get_account_by_riot_id(game_name, tag_line, routing_region)
+    if not account_info:
+        await interaction.followup.send(f"❌ Compte Riot **{riot_id}** introuvable. Vérifiez le nom et le tag.")
+        return
+    
+    puuid = account_info.get('puuid')
+    
+    # Récupérer les infos du summoner via PUUID
+    summoner_info = lol_tracker.get_summoner_by_puuid(puuid, region)
+    if not summoner_info:
+        await interaction.followup.send(f"❌ Impossible de récupérer les informations du summoner sur **{region.upper()}**.")
+        return
+    
+    summoner_name_real = account_info.get('gameName')
+    summoner_tag = account_info.get('tagLine')
     summoner_level = summoner_info.get('summonerLevel')
     summoner_id = summoner_info.get('id')
 
     # Vérifier si déjà tracké
     if puuid in lol_tracker.tracked_players_lol:
-        await interaction.followup.send(f"⚠️ **{summoner_name_real}** est déjà dans la liste de tracking LoL !")
+        await interaction.followup.send(f"⚠️ **{summoner_name_real}#{summoner_tag}** est déjà dans la liste de tracking LoL !")
         return
-
+    
     # Récupérer les stats ranked
     ranked_stats = lol_tracker.get_summoner_ranked_stats(summoner_id, region)
-
-    # Ajouter le joueur
-    lol_tracker.add_lol_player(db_connection, summoner_name_real, region, puuid)
-
+    
+    # Ajouter le joueur (on stocke le Riot ID complet)
+    lol_tracker.add_lol_player(db_connection, f"{summoner_name_real}#{summoner_tag}", region, puuid)
+    
     embed = discord.Embed(
         title="✅ Invocateur ajouté !",
-        description=f"**{summoner_name_real}** (Niveau {summoner_level}) est maintenant tracké",
+        description=f"**{summoner_name_real}#{summoner_tag}** (Niveau {summoner_level}) est maintenant tracké",
         color=discord.Color.blue()
     )
     embed.add_field(name="Région", value=region.upper(), inline=True)
