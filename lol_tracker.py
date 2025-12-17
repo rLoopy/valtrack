@@ -65,7 +65,7 @@ def save_lol_players_to_db(db_connection, players):
     """Sauvegarde les joueurs LoL dans PostgreSQL"""
     if not db_connection:
         return False
-    
+
     # Vérifier que la connexion est toujours active
     try:
         if db_connection.closed:
@@ -73,7 +73,7 @@ def save_lol_players_to_db(db_connection, players):
             return False
     except Exception:
         return False
-    
+
     try:
         cursor = db_connection.cursor()
 
@@ -521,9 +521,9 @@ def create_lol_match_embed(match_info, discord_module):
         inline=True
     )
 
-    # Dégâts
+    # Damage
     embed.add_field(
-        name="💥 Dégâts",
+        name="💥 Damage",
         value=f"{total_damage:,}",
         inline=True
     )
@@ -549,9 +549,9 @@ def create_lol_match_embed(match_info, discord_module):
         inline=True
     )
 
-    # Durée du match
+    # Game duration
     embed.add_field(
-        name="⏱️ Durée",
+        name="⏱️ Duration",
         value=format_game_duration(game_duration),
         inline=True
     )
