@@ -88,14 +88,42 @@ duo_puuid = None
 
 # ==================== GESTION BASE DE DONNÉES ====================
 
+def ensure_db_connection():
+    """Vérifie et rétablit la connexion DB si nécessaire"""
+    global db_connection
+    
+    if not POSTGRES_AVAILABLE or not DATABASE_URL:
+        return False
+    
+    try:
+        # Tester si la connexion est active
+        if db_connection and not db_connection.closed:
+            cursor = db_connection.cursor()
+            cursor.execute("SELECT 1")
+            cursor.close()
+            return True
+    except Exception:
+        pass
+    
+    # Reconnexion nécessaire
+    try:
+        print("🔄 Reconnexion à PostgreSQL...", flush=True)
+        db_connection = psycopg2.connect(DATABASE_URL)
+        print("✅ Reconnecté à PostgreSQL", flush=True)
+        return True
+    except Exception as e:
+        print(f"⚠️ Erreur de reconnexion à la DB: {e}")
+        db_connection = None
+        return False
+
 def init_database():
     """Initialize la connexion à la base de données et crée les tables"""
     global db_connection
-
+    
     if not POSTGRES_AVAILABLE or not DATABASE_URL:
         print("📁 Mode JSON: Pas de base de données PostgreSQL configurée")
         return False
-
+    
     try:
         db_connection = psycopg2.connect(DATABASE_URL)
         cursor = db_connection.cursor()
@@ -442,7 +470,7 @@ async def on_ready():
         print(f"Tracking {len(tracked_players)} joueur(s) Valorant", flush=True)
     else:
         print("⚠️ CHANNEL_ID non configuré.", flush=True)
-    
+
     # Démarrer la vérification des matchs LoL
     lol_channel = LOL_CHANNEL_ID if LOL_CHANNEL_ID else CHANNEL_ID
     if lol_channel and lol_tracker.tracked_players_lol:
@@ -459,12 +487,15 @@ async def check_matches():
 
     if not CHANNEL_ID or not tracked_players:
         return
-
+    
+    # Vérifier et rétablir la connexion DB si nécessaire
+    ensure_db_connection()
+    
     channel = bot.get_channel(CHANNEL_ID)
     if not channel:
         print(f"⚠️ Impossible de trouver le canal avec l'ID {CHANNEL_ID}")
         return
-
+    
     # Vérifier chaque joueur tracké
     for puuid, player_info in list(tracked_players.items()):
         await check_player_match(channel, puuid, player_info)
@@ -741,6 +772,9 @@ async def check_lol_matches():
     if not lol_tracker.tracked_players_lol:
         return
     
+    # Vérifier et rétablir la connexion DB si nécessaire
+    ensure_db_connection()
+    
     # Utiliser LOL_CHANNEL_ID si défini, sinon CHANNEL_ID
     channel_id = LOL_CHANNEL_ID if LOL_CHANNEL_ID else CHANNEL_ID
     if not channel_id:
@@ -754,15 +788,15 @@ async def check_lol_matches():
     # Vérifier chaque joueur LoL tracké
     for puuid, player_info in list(lol_tracker.tracked_players_lol.items()):
         match_info = await lol_tracker.check_lol_player_match(db_connection, puuid, player_info)
-        
+
         if match_info:
             # Créer l'embed
             embed = lol_tracker.create_lol_match_embed(match_info, discord)
-            
+
             # Mentionner l'utilisateur si configuré
             mention = f"<@{NOTIFY_USER_ID}>" if NOTIFY_USER_ID else ""
             message_content = mention if mention else None
-            
+
             await channel.send(content=message_content, embed=embed)
             print(f"[LoL - {match_info['summoner_name']}] Notification envoyée pour le match {match_info['match_id']}")
 

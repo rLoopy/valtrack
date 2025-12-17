@@ -65,7 +65,15 @@ def save_lol_players_to_db(db_connection, players):
     """Sauvegarde les joueurs LoL dans PostgreSQL"""
     if not db_connection:
         return False
-
+    
+    # Vérifier que la connexion est toujours active
+    try:
+        if db_connection.closed:
+            print("⚠️ Connexion DB fermée, impossible de sauvegarder")
+            return False
+    except Exception:
+        return False
+    
     try:
         cursor = db_connection.cursor()
 
