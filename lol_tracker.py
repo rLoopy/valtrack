@@ -397,7 +397,7 @@ def create_lol_match_embed(match_info, discord_module):
         badges.append("🔥 TRIPLE KILL!")
 
     if kda >= 5.0:
-        badges.append("⭐ KDA PARFAIT")
+        badges.append("⭐ PERFECT KDA")
     elif kda >= 3.0:
         badges.append("💪 EXCELLENT KDA")
 
@@ -481,10 +481,10 @@ def create_lol_match_embed(match_info, discord_module):
         timestamp=discord_module.utils.utcnow()
     )
 
-    # Champion joué
+    # Champion played
     embed.add_field(
         name="🎭 Champion",
-        value=f"{champion} (Niveau {level})",
+        value=f"{champion} (Level {level})",
         inline=True
     )
 
