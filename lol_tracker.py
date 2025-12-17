@@ -409,55 +409,63 @@ def create_lol_match_embed(match_info, discord_module):
         badges.insert(0, "🏆 MVP")
 
     badges_text = " ".join(badges) if badges else ""
+
+    # Détecter si c'est un jungler (role)
+    role = player_stats.get('teamPosition', '').upper()
+    is_jungler = role == 'JUNGLE' or player_stats.get('individualPosition', '').upper() == 'JUNGLE'
     
     # Messages toxiques pour les défaites 😈
     toxic_messages = []
     if not won:
+        # JUNGLE DIFF obligatoire pour les junglers
+        if is_jungler:
+            toxic_messages.append("🌳 JUNGLE DIFF - Get out of my jungle")
+        
         # Messages selon le nombre de morts
         if deaths >= 10:
-            toxic_messages.append(f"💀 RUNNING IT DOWN: {deaths} morts (c'est un record ?)")
+            toxic_messages.append(f"💀 INTING SIMULATOR: {deaths} deaths (is this a speedrun?)")
         elif deaths >= 7:
-            toxic_messages.append(f"🪦 Service funéraire recommandé ({deaths} décès)")
+            toxic_messages.append(f"🪦 Cemetery resident ({deaths} deaths)")
         
         # Messages selon le KDA
         if kda < 1.0:
-            toxic_messages.append("🤡 KDA < 1.0 - Iron gameplay unlocked")
+            toxic_messages.append("🤡 KDA < 1.0 - Iron IV gameplay unlocked")
         
         # Messages selon la kill participation
         if kill_participation < 30:
-            toxic_messages.append(f"🎪 {kill_participation}% KP - AFK ou quoi ?")
+            toxic_messages.append(f"🎪 {kill_participation}% KP - Were you even playing?")
         
-        # Messages selon le CS
-        if cs_per_min < 4:
-            toxic_messages.append(f"🌾 {cs_per_min} CS/min - Les minions se tuent tous seuls maintenant ?")
+        # Messages selon le CS (si pas jungler)
+        if not is_jungler and cs_per_min < 4:
+            toxic_messages.append(f"🌾 {cs_per_min} CS/min - The minions farm themselves now?")
         
         # Message par défaut si aucun trigger spécial
-        if not toxic_messages:
+        if not toxic_messages and not is_jungler:
             default_toxic = [
                 "💀 RIP BOZO",
-                "🤡 Diff gap énorme",
-                "😴 Unranked vibes",
+                "🤡 Massive diff gap",
+                "😴 Unranked energy",
                 "🎪 Entertainment value +100",
                 "💩 Hardstuck confirmed",
-                "🗿 Built different (trash tier)"
+                "🗿 Built different (negatively)"
             ]
             import random
             toxic_messages.append(random.choice(default_toxic))
-    
+
     # Couleur selon victoire/défaite
     result_emoji = '✅' if won else '💀'
     result_text = "VICTOIRE" if won else "DÉFAITE HONTEUSE"
     result_color = discord_module.Color.green() if won else discord_module.Color.dark_red()
-    
+
     # Description différente selon win/loss
     if won:
-        description = f"**{summoner_name}** a **gagné** (nice)\n{badges_text}"
+        description = f"**{summoner_name}** has **won** (nice)\n{badges_text}"
     else:
         toxic_text = "\n".join(toxic_messages)
-        description = f"**{summoner_name}** a **perdu** (mdr)\n{badges_text}\n\n{toxic_text}"
+        description = f"**{summoner_name}** has **lost** (lmao)\n{badges_text}\n\n{toxic_text}"
     
     # Créer l'embed
-    title = f"{result_emoji} Match LoL terminé!" if won else f"{result_emoji} L BOZO - Match perdu!"
+    title = f"{result_emoji} LoL Match Complete!" if won else f"{result_emoji} L BOZO - Match Lost!"
     embed = discord_module.Embed(
         title=title,
         description=description,
@@ -476,13 +484,13 @@ def create_lol_match_embed(match_info, discord_module):
     kda_label = "⚔️ K/D/A"
     if not won and deaths > kills:
         kda_label = "💀 K/D/A (yikes)"
-    
+
     embed.add_field(
         name=kda_label,
         value=f"{kills}/{deaths}/{assists}",
         inline=True
     )
-    
+
     # KDA Ratio avec commentaire
     kda_display = f"{kda:.2f}"
     if not won:
@@ -490,7 +498,7 @@ def create_lol_match_embed(match_info, discord_module):
             kda_display += " 🤡"
         elif kda < 2.0:
             kda_display += " 📉"
-    
+
     embed.add_field(
         name="📊 KDA Ratio",
         value=kda_display,
@@ -567,18 +575,28 @@ def create_lol_match_embed(match_info, discord_module):
     if won:
         footer_text = f"Match ID: {match_id[:8]}... | GG WP"
     else:
-        toxic_footers = [
-            f"Match ID: {match_id[:8]}... | Uninstall recommended",
-            f"Match ID: {match_id[:8]}... | Better luck next time (you'll need it)",
-            f"Match ID: {match_id[:8]}... | Elo hell or skill issue?",
-            f"Match ID: {match_id[:8]}... | Certified L moment",
-            f"Match ID: {match_id[:8]}... | Built different (negatively)",
-            f"Match ID: {match_id[:8]}... | Hardstuck speedrun"
-        ]
+        if is_jungler:
+            toxic_footers = [
+                f"Match ID: {match_id[:8]}... | Jungle diff hit different",
+                f"Match ID: {match_id[:8]}... | Enemy jungler gap too large",
+                f"Match ID: {match_id[:8]}... | Maybe try support?",
+                f"Match ID: {match_id[:8]}... | Lost in your own jungle",
+                f"Match ID: {match_id[:8]}... | Ganking on cooldown (never used)",
+                f"Match ID: {match_id[:8]}... | Certified jungle diff moment"
+            ]
+        else:
+            toxic_footers = [
+                f"Match ID: {match_id[:8]}... | Uninstall recommended",
+                f"Match ID: {match_id[:8]}... | Better luck next time (you'll need it)",
+                f"Match ID: {match_id[:8]}... | Elo hell or skill issue?",
+                f"Match ID: {match_id[:8]}... | Certified L moment",
+                f"Match ID: {match_id[:8]}... | Built different (negatively)",
+                f"Match ID: {match_id[:8]}... | Hardstuck speedrun any%"
+            ]
         import random
         footer_text = random.choice(toxic_footers)
-    
+
     embed.set_footer(text=footer_text)
-    
+
     return embed
 
