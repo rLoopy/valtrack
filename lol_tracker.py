@@ -413,32 +413,32 @@ def create_lol_match_embed(match_info, discord_module):
     # Détecter si c'est un jungler (role)
     role = player_stats.get('teamPosition', '').upper()
     is_jungler = role == 'JUNGLE' or player_stats.get('individualPosition', '').upper() == 'JUNGLE'
-    
+
     # Messages toxiques pour les défaites 😈
     toxic_messages = []
     if not won:
         # JUNGLE DIFF obligatoire pour les junglers
         if is_jungler:
-            toxic_messages.append("🌳 JUNGLE DIFF - Get out of my jungle")
-        
+            toxic_messages.append("🌳 JUNGLE DIFF - Outjungled and embarrassed")
+
         # Messages selon le nombre de morts
         if deaths >= 10:
             toxic_messages.append(f"💀 INTING SIMULATOR: {deaths} deaths (is this a speedrun?)")
         elif deaths >= 7:
             toxic_messages.append(f"🪦 Cemetery resident ({deaths} deaths)")
-        
+
         # Messages selon le KDA
         if kda < 1.0:
             toxic_messages.append("🤡 KDA < 1.0 - Iron IV gameplay unlocked")
-        
+
         # Messages selon la kill participation
         if kill_participation < 30:
             toxic_messages.append(f"🎪 {kill_participation}% KP - Were you even playing?")
-        
+
         # Messages selon le CS (si pas jungler)
         if not is_jungler and cs_per_min < 4:
             toxic_messages.append(f"🌾 {cs_per_min} CS/min - The minions farm themselves now?")
-        
+
         # Message par défaut si aucun trigger spécial
         if not toxic_messages and not is_jungler:
             default_toxic = [
@@ -463,7 +463,7 @@ def create_lol_match_embed(match_info, discord_module):
     else:
         toxic_text = "\n".join(toxic_messages)
         description = f"**{summoner_name}** has **lost** (lmao)\n{badges_text}\n\n{toxic_text}"
-    
+
     # Créer l'embed
     title = f"{result_emoji} LoL Match Complete!" if won else f"{result_emoji} L BOZO - Match Lost!"
     embed = discord_module.Embed(
@@ -577,12 +577,12 @@ def create_lol_match_embed(match_info, discord_module):
     else:
         if is_jungler:
             toxic_footers = [
-                f"Match ID: {match_id[:8]}... | Jungle diff hit different",
-                f"Match ID: {match_id[:8]}... | Enemy jungler gap too large",
-                f"Match ID: {match_id[:8]}... | Maybe try support?",
-                f"Match ID: {match_id[:8]}... | Lost in your own jungle",
-                f"Match ID: {match_id[:8]}... | Ganking on cooldown (never used)",
-                f"Match ID: {match_id[:8]}... | Certified jungle diff moment"
+                f"Match ID: {match_id[:8]}... | Jungle diff simply too large",
+                f"Match ID: {match_id[:8]}... | Enemy jungler owns you",
+                f"Match ID: {match_id[:8]}... | Maybe try normals first?",
+                f"Match ID: {match_id[:8]}... | Perma-camped by enemy jungler",
+                f"Match ID: {match_id[:8]}... | Griefing the lanes speedrun",
+                f"Match ID: {match_id[:8]}... | Jungle gap insurmountable"
             ]
         else:
             toxic_footers = [
