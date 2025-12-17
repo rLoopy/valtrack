@@ -17,6 +17,15 @@ except ImportError:
     MATPLOTLIB_AVAILABLE = False
     print("⚠️ matplotlib non disponible. Les graphiques de rang ne seront pas disponibles.")
 
+# Import PostgreSQL
+try:
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    POSTGRES_AVAILABLE = True
+except ImportError:
+    POSTGRES_AVAILABLE = False
+    print("⚠️ psycopg2 non disponible. Utilisation du stockage JSON en fallback.")
+
 # Charger les variables d'environnement
 load_dotenv()
 
@@ -31,6 +40,10 @@ NOTIFY_USER_ID = os.getenv('NOTIFY_USER_ID', '265556280033148929')
 # Intervalle par défaut: 90 secondes pour respecter le rate limit (90 req/min pour Advanced key)
 # Cela fait environ 40 requêtes/heure, ce qui est sûr
 POLL_INTERVAL = int(os.getenv('POLL_INTERVAL', '90'))  # Secondes entre les vérifications
+
+# Configuration PostgreSQL (Railway injecte automatiquement DATABASE_URL)
+DATABASE_URL = os.getenv('DATABASE_URL')
+db_connection = None
 
 # Configuration Discord
 intents = discord.Intents.default()
@@ -48,23 +61,123 @@ tracked_players = {}  # Format: {puuid: {name, tag, last_match_id}}
 # Variables de compatibilité (gardées pour le premier joueur par défaut)
 duo_puuid = None
 
+# ==================== GESTION BASE DE DONNÉES ====================
+
+def init_database():
+    """Initialize la connexion à la base de données et crée les tables"""
+    global db_connection
+
+    if not POSTGRES_AVAILABLE or not DATABASE_URL:
+        print("📁 Mode JSON: Pas de base de données PostgreSQL configurée")
+        return False
+
+    try:
+        db_connection = psycopg2.connect(DATABASE_URL)
+        cursor = db_connection.cursor()
+
+        # Créer la table des joueurs trackés
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS tracked_players (
+                puuid VARCHAR(255) PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                tag VARCHAR(255) NOT NULL,
+                last_match_id VARCHAR(255),
+                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        db_connection.commit()
+        cursor.close()
+        print("✅ Base de données PostgreSQL connectée et initialisée")
+        return True
+    except Exception as e:
+        print(f"⚠️ Erreur lors de l'initialisation de la DB: {e}")
+        print("📁 Fallback vers le mode JSON")
+        db_connection = None
+        return False
+
+def load_tracked_players_from_db():
+    """Charge les joueurs depuis PostgreSQL"""
+    if not db_connection:
+        return {}
+
+    try:
+        cursor = db_connection.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("SELECT * FROM tracked_players")
+        rows = cursor.fetchall()
+        cursor.close()
+
+        players = {}
+        for row in rows:
+            players[row['puuid']] = {
+                'name': row['name'],
+                'tag': row['tag'],
+                'last_match_id': row['last_match_id']
+            }
+
+        return players
+    except Exception as e:
+        print(f"⚠️ Erreur lors du chargement depuis la DB: {e}")
+        return {}
+
+def save_tracked_players_to_db(players):
+    """Sauvegarde les joueurs dans PostgreSQL"""
+    if not db_connection:
+        return False
+
+    try:
+        cursor = db_connection.cursor()
+
+        # Clear et re-insert (simple mais efficace)
+        cursor.execute("DELETE FROM tracked_players")
+
+        for puuid, info in players.items():
+            cursor.execute("""
+                INSERT INTO tracked_players (puuid, name, tag, last_match_id)
+                VALUES (%s, %s, %s, %s)
+            """, (puuid, info['name'], info['tag'], info.get('last_match_id')))
+
+        db_connection.commit()
+        cursor.close()
+        return True
+    except Exception as e:
+        print(f"⚠️ Erreur lors de la sauvegarde dans la DB: {e}")
+        db_connection.rollback()
+        return False
+
 def load_tracked_players():
-    """Charge la liste des joueurs trackés"""
+    """Charge la liste des joueurs trackés (DB prioritaire, fallback JSON)"""
+    # Essayer de charger depuis la DB d'abord
+    if db_connection:
+        players = load_tracked_players_from_db()
+        if players:
+            return players
+
+    # Fallback: charger depuis JSON
     try:
         if os.path.exists(TRACKED_PLAYERS_FILE):
             with open(TRACKED_PLAYERS_FILE, 'r') as f:
                 return json.load(f)
     except Exception as e:
-        print(f"Erreur lors du chargement des joueurs: {e}")
+        print(f"Erreur lors du chargement des joueurs depuis JSON: {e}")
     return {}
 
 def save_tracked_players(players):
-    """Sauvegarde la liste des joueurs trackés"""
+    """Sauvegarde la liste des joueurs trackés (DB prioritaire, backup JSON)"""
+    # Essayer de sauvegarder dans la DB d'abord
+    if db_connection:
+        if save_tracked_players_to_db(players):
+            print("💾 Joueurs sauvegardés dans PostgreSQL")
+            return
+
+    # Fallback: sauvegarder dans JSON
     try:
         with open(TRACKED_PLAYERS_FILE, 'w') as f:
             json.dump(players, f, indent=2)
+        print("💾 Joueurs sauvegardés dans JSON (fallback)")
     except Exception as e:
-        print(f"Erreur lors de la sauvegarde des joueurs: {e}")
+        print(f"⚠️ Erreur lors de la sauvegarde des joueurs: {e}")
 
 def add_tracked_player(name, tag, puuid):
     """Ajoute un joueur à la liste de tracking"""
@@ -252,6 +365,9 @@ class ReactionView(discord.ui.View):
 async def on_ready():
     """Événement déclenché quand le bot est prêt"""
     print(f'{bot.user} est connecté!', flush=True)
+
+    # Initialiser la base de données
+    init_database()
 
     # Synchroniser les slash commands
     try:
