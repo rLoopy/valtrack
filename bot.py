@@ -435,13 +435,22 @@ async def on_ready():
             else:
                 print(f"Joueur déjà tracké: {DUO_NAME}#{DUO_TAG}", flush=True)
 
-    # Démarrer la vérification des matchs
+    # Démarrer la vérification des matchs Valorant
     if CHANNEL_ID:
         check_matches.start()
-        print(f"Bot prêt! Vérification des matchs toutes les {POLL_INTERVAL} secondes.", flush=True)
-        print(f"Tracking {len(tracked_players)} joueur(s)", flush=True)
+        print(f"Bot prêt! Vérification des matchs Valorant toutes les {POLL_INTERVAL} secondes.", flush=True)
+        print(f"Tracking {len(tracked_players)} joueur(s) Valorant", flush=True)
     else:
         print("⚠️ CHANNEL_ID non configuré.", flush=True)
+    
+    # Démarrer la vérification des matchs LoL
+    lol_channel = LOL_CHANNEL_ID if LOL_CHANNEL_ID else CHANNEL_ID
+    if lol_channel and lol_tracker.tracked_players_lol:
+        check_lol_matches.start()
+        print(f"✅ Vérification des matchs LoL activée toutes les {POLL_INTERVAL} secondes.", flush=True)
+        print(f"Tracking {len(lol_tracker.tracked_players_lol)} joueur(s) LoL", flush=True)
+    elif lol_tracker.tracked_players_lol:
+        print("⚠️ Joueurs LoL trackés mais aucun channel configuré (LOL_CHANNEL_ID ou CHANNEL_ID)", flush=True)
 
 @tasks.loop(seconds=POLL_INTERVAL)
 async def check_matches():
@@ -722,6 +731,44 @@ async def check_player_match(channel, puuid, player_info):
 @check_matches.before_loop
 async def before_check_matches():
     """Attend que le bot soit prêt avant de commencer les vérifications"""
+    await bot.wait_until_ready()
+
+# ==================== TASK LOOP LEAGUE OF LEGENDS ====================
+
+@tasks.loop(seconds=POLL_INTERVAL)
+async def check_lol_matches():
+    """Vérifie périodiquement les nouveaux matchs LoL pour tous les joueurs trackés"""
+    if not lol_tracker.tracked_players_lol:
+        return
+    
+    # Utiliser LOL_CHANNEL_ID si défini, sinon CHANNEL_ID
+    channel_id = LOL_CHANNEL_ID if LOL_CHANNEL_ID else CHANNEL_ID
+    if not channel_id:
+        return
+    
+    channel = bot.get_channel(channel_id)
+    if not channel:
+        print(f"⚠️ Impossible de trouver le canal LoL avec l'ID {channel_id}")
+        return
+    
+    # Vérifier chaque joueur LoL tracké
+    for puuid, player_info in list(lol_tracker.tracked_players_lol.items()):
+        match_info = await lol_tracker.check_lol_player_match(db_connection, puuid, player_info)
+        
+        if match_info:
+            # Créer l'embed
+            embed = lol_tracker.create_lol_match_embed(match_info, discord)
+            
+            # Mentionner l'utilisateur si configuré
+            mention = f"<@{NOTIFY_USER_ID}>" if NOTIFY_USER_ID else ""
+            message_content = mention if mention else None
+            
+            await channel.send(content=message_content, embed=embed)
+            print(f"[LoL - {match_info['summoner_name']}] Notification envoyée pour le match {match_info['match_id']}")
+
+@check_lol_matches.before_loop
+async def before_check_lol_matches():
+    """Attend que le bot soit prêt avant de commencer les vérifications LoL"""
     await bot.wait_until_ready()
 
 @bot.tree.command(name='test', description='Vérifie que le bot fonctionne')
@@ -1188,21 +1235,21 @@ async def add_lol_player_command(interaction: discord.Interaction, riot_id: str,
     if not summoner_info:
         await interaction.followup.send(f"❌ Impossible de récupérer les informations du summoner sur **{region.upper()}**.\nVérifiez que votre clé API Riot est valide et que le joueur existe sur cette région.")
         return
-    
+
     summoner_name_real = account_info.get('gameName')
     summoner_tag = account_info.get('tagLine')
     summoner_level = summoner_info.get('summonerLevel', 0)
     summoner_id = summoner_info.get('id')
-    
+
     if not summoner_id:
         await interaction.followup.send(f"❌ Erreur : Impossible de récupérer l'ID du summoner.\nVotre clé API Riot est peut-être expirée. Régénérez-la sur developer.riotgames.com")
         return
-    
+
     # Vérifier si déjà tracké
     if puuid in lol_tracker.tracked_players_lol:
         await interaction.followup.send(f"⚠️ **{summoner_name_real}#{summoner_tag}** est déjà dans la liste de tracking LoL !")
         return
-    
+
     # Récupérer les stats ranked (optionnel, ne bloque pas si ça échoue)
     ranked_stats = None
     try:

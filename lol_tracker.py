@@ -121,21 +121,21 @@ def get_account_by_riot_id(game_name, tag_line, routing_region='europe'):
     if not RIOT_API_KEY:
         print("⚠️ RIOT_API_KEY non configurée")
         return None
-    
+
     regional_endpoint = RIOT_API_BASE.get(routing_region, RIOT_API_BASE['europe'])
     url = f'{regional_endpoint}/riot/account/v1/accounts/by-riot-id/{game_name}/{tag_line}'
     headers = {'X-Riot-Token': RIOT_API_KEY}
-    
+
     try:
         response = requests.get(url, headers=headers, timeout=10)
-        
+
         if response.status_code == 429:
             print("⚠️ Rate limit atteint sur l'API Riot")
             return None
         elif response.status_code == 404:
             print(f"❌ Compte Riot {game_name}#{tag_line} introuvable")
             return None
-        
+
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
@@ -147,20 +147,20 @@ def get_summoner_by_puuid(puuid, region='euw1'):
     if not RIOT_API_KEY:
         print("⚠️ RIOT_API_KEY non configurée")
         return None
-    
+
     url = f'https://{region}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/{puuid}'
     headers = {'X-Riot-Token': RIOT_API_KEY}
-    
+
     try:
         response = requests.get(url, headers=headers, timeout=10)
-        
+
         if response.status_code == 429:
             print("⚠️ Rate limit atteint sur l'API Riot")
             return None
         elif response.status_code == 404:
             print(f"❌ Invocateur introuvable")
             return None
-        
+
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
@@ -279,4 +279,239 @@ def format_game_duration(duration_seconds):
     minutes = duration_seconds // 60
     seconds = duration_seconds % 60
     return f"{minutes}m {seconds}s"
+
+# ==================== TRACKING AUTOMATIQUE ====================
+
+async def check_lol_player_match(db_connection, puuid, player_info):
+    """Vérifie si un joueur LoL a terminé un nouveau match"""
+    try:
+        summoner_name = player_info['summoner_name']
+        region = player_info['region']
+        last_match_id = player_info.get('last_match_id')
+
+        # Déterminer la routing region
+        routing_region = REGION_TO_ROUTING.get(region, 'europe')
+
+        # Récupérer les derniers matchs (juste le premier)
+        match_ids = get_recent_matches(puuid, routing_region, count=1)
+
+        if match_ids is None:
+            # Rate limit
+            return None
+
+        if not match_ids or len(match_ids) == 0:
+            return None
+
+        latest_match_id = match_ids[0]
+
+        # Si c'est un nouveau match
+        if latest_match_id != last_match_id:
+            print(f"[LoL - {summoner_name}] Nouveau match détecté: {latest_match_id}")
+
+            # Récupérer les détails du match
+            match_data = get_match_details(latest_match_id, routing_region)
+
+            if match_data is None:
+                # Rate limit
+                return None
+
+            if match_data:
+                # Obtenir les stats du joueur
+                player_stats = get_player_stats_from_match(match_data, puuid)
+
+                if player_stats:
+                    # Mettre à jour le dernier match ID
+                    update_last_match_for_lol_player(db_connection, puuid, latest_match_id)
+
+                    # Retourner les données pour créer l'embed
+                    return {
+                        'match_id': latest_match_id,
+                        'match_data': match_data,
+                        'player_stats': player_stats,
+                        'summoner_name': summoner_name,
+                        'region': region
+                    }
+                else:
+                    print(f"[LoL - {summoner_name}] Joueur non trouvé dans le match {latest_match_id}")
+
+            # Mettre à jour quand même pour éviter de re-checker
+            update_last_match_for_lol_player(db_connection, puuid, latest_match_id)
+
+    except Exception as e:
+        print(f"Erreur lors de la vérification des matchs LoL: {e}")
+        import traceback
+        traceback.print_exc()
+
+    return None
+
+def create_lol_match_embed(match_info, discord_module):
+    """Crée l'embed Discord pour une notification de match LoL"""
+    match_data = match_info['match_data']
+    player_stats = match_info['player_stats']
+    summoner_name = match_info['summoner_name']
+    match_id = match_info['match_id']
+
+    # Infos du match
+    info = match_data['info']
+    game_duration = info['gameDuration']
+    game_mode = info['gameMode']
+
+    # Stats du joueur
+    champion = player_stats['championName']
+    kills = player_stats['kills']
+    deaths = player_stats['deaths']
+    assists = player_stats['assists']
+    total_damage = player_stats['totalDamageDealtToChampions']
+    cs = player_stats['totalMinionsKilled'] + player_stats.get('neutralMinionsKilled', 0)
+    vision_score = player_stats['visionScore']
+    gold = player_stats['goldEarned']
+    level = player_stats['champLevel']
+
+    # Victoire ou défaite
+    won = player_stats['win']
+
+    # Calculer KDA
+    kda = get_kda_ratio(kills, deaths, assists)
+
+    # Multi-kills
+    double_kills = player_stats.get('doubleKills', 0)
+    triple_kills = player_stats.get('tripleKills', 0)
+    quadra_kills = player_stats.get('quadraKills', 0)
+    penta_kills = player_stats.get('pentaKills', 0)
+
+    # Badges de performance
+    badges = []
+    if penta_kills > 0:
+        badges.append("👑 PENTAKILL!")
+    elif quadra_kills > 0:
+        badges.append("💥 QUADRAKILL!")
+    elif triple_kills > 0:
+        badges.append("🔥 TRIPLE KILL!")
+
+    if kda >= 5.0:
+        badges.append("⭐ KDA PARFAIT")
+    elif kda >= 3.0:
+        badges.append("💪 EXCELLENT KDA")
+
+    # Kill participation
+    team_kills = sum(p['kills'] for p in info['participants'] if p['teamId'] == player_stats['teamId'])
+    kill_participation = round((kills + assists) / max(1, team_kills) * 100)
+
+    if kill_participation >= 70:
+        badges.append("👑 CARRY")
+    elif kill_participation >= 50:
+        badges.append("🎯 HIGH IMPACT")
+
+    # MVP de l'équipe ?
+    team_players = [p for p in info['participants'] if p['teamId'] == player_stats['teamId']]
+    best_damage = max(p['totalDamageDealtToChampions'] for p in team_players)
+    if total_damage == best_damage and won:
+        badges.insert(0, "🏆 MVP")
+
+    badges_text = " ".join(badges) if badges else ""
+
+    # Couleur selon victoire/défaite
+    result_emoji = '✅' if won else '❌'
+    result_text = "VICTOIRE" if won else "DÉFAITE"
+    result_color = discord_module.Color.green() if won else discord_module.Color.red()
+
+    # Créer l'embed
+    embed = discord_module.Embed(
+        title=f"{result_emoji} Match LoL terminé!",
+        description=f"**{summoner_name}** a **{result_text.lower()}**\n{badges_text}",
+        color=result_color,
+        timestamp=discord_module.utils.utcnow()
+    )
+
+    # Champion joué
+    embed.add_field(
+        name="🎭 Champion",
+        value=f"{champion} (Niveau {level})",
+        inline=True
+    )
+
+    # KDA
+    embed.add_field(
+        name="⚔️ K/D/A",
+        value=f"{kills}/{deaths}/{assists}",
+        inline=True
+    )
+
+    # KDA Ratio
+    embed.add_field(
+        name="📊 KDA Ratio",
+        value=f"{kda:.2f}",
+        inline=True
+    )
+
+    # CS (Creep Score)
+    cs_per_min = round(cs / (game_duration / 60), 1)
+    embed.add_field(
+        name="🗡️ CS",
+        value=f"{cs} ({cs_per_min}/min)",
+        inline=True
+    )
+
+    # Dégâts
+    embed.add_field(
+        name="💥 Dégâts",
+        value=f"{total_damage:,}",
+        inline=True
+    )
+
+    # Kill Participation
+    embed.add_field(
+        name="🎯 KP%",
+        value=f"{kill_participation}%",
+        inline=True
+    )
+
+    # Vision Score
+    embed.add_field(
+        name="👁️ Vision",
+        value=f"{vision_score}",
+        inline=True
+    )
+
+    # Gold
+    embed.add_field(
+        name="💰 Gold",
+        value=f"{gold:,}",
+        inline=True
+    )
+
+    # Durée du match
+    embed.add_field(
+        name="⏱️ Durée",
+        value=format_game_duration(game_duration),
+        inline=True
+    )
+
+    # Mode de jeu
+    embed.add_field(
+        name="🎮 Mode",
+        value=game_mode,
+        inline=False
+    )
+
+    # Multi-kills si présents
+    if penta_kills > 0 or quadra_kills > 0 or triple_kills > 0:
+        multikills = []
+        if penta_kills > 0:
+            multikills.append(f"👑 {penta_kills}x Pentakill")
+        if quadra_kills > 0:
+            multikills.append(f"💥 {quadra_kills}x Quadra")
+        if triple_kills > 0:
+            multikills.append(f"🔥 {triple_kills}x Triple")
+
+        embed.add_field(
+            name="🎊 Multi-kills",
+            value="\n".join(multikills),
+            inline=False
+        )
+
+    # Footer avec match ID
+    embed.set_footer(text=f"Match ID: {match_id[:8]}...")
+
+    return embed
 
