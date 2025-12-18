@@ -158,19 +158,27 @@ def get_summoner_by_puuid(puuid, region='euw1'):
 
     url = f'https://{region}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/{puuid}'
     headers = {'X-Riot-Token': RIOT_API_KEY}
+    
+    print(f"[DEBUG] get_summoner_by_puuid URL: {url}")
 
     try:
         response = requests.get(url, headers=headers, timeout=10)
+        print(f"[DEBUG] Status code: {response.status_code}")
 
         if response.status_code == 429:
             print("⚠️ Rate limit atteint sur l'API Riot")
             return None
         elif response.status_code == 404:
-            print(f"❌ Invocateur introuvable")
+            print(f"❌ Invocateur introuvable (404)")
+            return None
+        elif response.status_code != 200:
+            print(f"❌ Erreur API: {response.status_code} - {response.text}")
             return None
 
         response.raise_for_status()
-        return response.json()
+        data = response.json()
+        print(f"[DEBUG] Summoner data: {data}")
+        return data
     except requests.exceptions.RequestException as e:
         print(f"Erreur lors de la récupération de l'invocateur: {e}")
         return None
@@ -330,7 +338,7 @@ async def check_lol_player_match(db_connection, puuid, player_info):
                 if player_stats:
                     # Récupérer le summoner info pour avoir le summonerId
                     summoner_info = get_summoner_by_puuid(puuid, region)
-                    
+
                     # Récupérer le rang actuel
                     ranked_info = None
                     if summoner_info:
@@ -349,7 +357,7 @@ async def check_lol_player_match(db_connection, puuid, player_info):
                                             'losses': queue.get('losses')
                                         }
                                         break
-                    
+
                     # Mettre à jour le dernier match ID
                     update_last_match_for_lol_player(db_connection, puuid, latest_match_id)
 
@@ -538,7 +546,7 @@ def create_lol_match_embed(match_info, discord_module):
         value=kda_display,
         inline=True
     )
-    
+
     # Rank actuel (si disponible)
     if ranked_info:
         tier = ranked_info['tier']
@@ -546,17 +554,17 @@ def create_lol_match_embed(match_info, discord_module):
         lp = ranked_info['lp']
         wins = ranked_info['wins']
         losses = ranked_info['losses']
-        
+
         tier_emoji = get_tier_emoji(tier)
         rank_display = get_rank_display(tier, rank, lp)
         winrate = round((wins / (wins + losses)) * 100) if (wins + losses) > 0 else 0
-        
+
         embed.add_field(
             name=f"{tier_emoji} Current Rank",
             value=f"{rank_display}\n{wins}W {losses}L ({winrate}%)",
             inline=True
         )
-    
+
     # CS (Creep Score)
     embed.add_field(
         name="🗡️ CS",
