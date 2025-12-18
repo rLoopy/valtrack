@@ -1233,7 +1233,7 @@ async def test_api_command(interaction: discord.Interaction, name: str = None, t
 @app_commands.describe(riot_id='Riot ID complet (ex: ThroatGoat#Glucc)')
 async def add_lol_player_command(interaction: discord.Interaction, riot_id: str):
     """Ajoute un invocateur LoL à tracker"""
-    
+
     # Force EUW region
     region = 'euw1'
 
@@ -1350,53 +1350,61 @@ async def list_lol_players_command(interaction: discord.Interaction):
 @app_commands.describe(riot_id='Riot ID complet (ex: ThroatGoat#Glucc)')
 async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
     """Affiche le rang actuel d'un invocateur LoL"""
-    
+
     # Parser le Riot ID (nom#tag)
     if '#' not in riot_id:
         await interaction.response.send_message(f"❌ Format invalide ! Utilisez le format **Nom#Tag** (ex: ThroatGoat#Glucc)")
         return
-    
+
     game_name, tag_line = riot_id.split('#', 1)
-    
+
     await interaction.response.send_message(f"🔍 Recherche du rang de **{riot_id}**...")
-    
+
     # Force EUW
     region = 'euw1'
     routing_region = 'europe'
-    
+
     # Récupérer le compte Riot
-    account_info = lol_tracker.get_account_by_riot_id(game_name, tag_line, routing_region)
-    if not account_info:
-        await interaction.followup.send(f"❌ Compte Riot **{riot_id}** introuvable.")
+    try:
+        account_info = lol_tracker.get_account_by_riot_id(game_name, tag_line, routing_region)
+        if not account_info:
+            await interaction.followup.send(f"❌ Compte Riot **{riot_id}** introuvable.\nVérifiez l'orthographe du nom et du tag.")
+            return
+        
+        puuid = account_info.get('puuid')
+        print(f"[Rank-LoL] PUUID trouvé: {puuid[:8]}...")
+        
+        # Récupérer les infos du summoner
+        summoner_info = lol_tracker.get_summoner_by_puuid(puuid, region)
+        if not summoner_info:
+            await interaction.followup.send(f"❌ Impossible de récupérer les informations du summoner sur EUW.\n**Vérifiez:**\n- Votre clé API Riot est valide\n- Le joueur existe sur EUW")
+            return
+        
+        summoner_name = account_info.get('gameName')
+        summoner_tag = account_info.get('tagLine')
+        summoner_level = summoner_info.get('summonerLevel', 0)
+        summoner_id = summoner_info.get('id')
+        
+        print(f"[Rank-LoL] Summoner ID: {summoner_id}")
+        
+        if not summoner_id:
+            await interaction.followup.send(f"❌ Erreur lors de la récupération du summoner ID.\n**Cause probable:** Clé API Riot expirée.\nRégénérez votre clé sur developer.riotgames.com")
+            return
+    except Exception as e:
+        print(f"[Rank-LoL] Exception: {e}")
+        await interaction.followup.send(f"❌ Erreur technique: {str(e)}\nVérifiez que votre clé API Riot est valide.")
         return
-    
-    puuid = account_info.get('puuid')
-    
-    # Récupérer les infos du summoner
-    summoner_info = lol_tracker.get_summoner_by_puuid(puuid, region)
-    if not summoner_info:
-        await interaction.followup.send(f"❌ Impossible de récupérer les informations du summoner.")
-        return
-    
-    summoner_name = account_info.get('gameName')
-    summoner_tag = account_info.get('tagLine')
-    summoner_level = summoner_info.get('summonerLevel', 0)
-    summoner_id = summoner_info.get('id')
-    
-    if not summoner_id:
-        await interaction.followup.send(f"❌ Erreur lors de la récupération du summoner ID.")
-        return
-    
+
     # Récupérer les stats ranked
     ranked_stats = lol_tracker.get_summoner_ranked_stats(summoner_id, region)
-    
+
     embed = discord.Embed(
         title=f"🏆 Rang LoL - {summoner_name}#{summoner_tag}",
         description=f"Niveau {summoner_level} • EUW",
         color=discord.Color.blue(),
         timestamp=datetime.now(timezone.utc)
     )
-    
+
     if ranked_stats:
         found_ranked = False
         for queue in ranked_stats:
@@ -1406,18 +1414,18 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
                 lp = queue['leaguePoints']
                 wins = queue['wins']
                 losses = queue['losses']
-                
+
                 tier_emoji = lol_tracker.get_tier_emoji(tier)
                 rank_display = lol_tracker.get_rank_display(tier, rank, lp)
                 winrate = round((wins / (wins + losses)) * 100) if (wins + losses) > 0 else 0
-                
+
                 embed.add_field(
                     name=f"{tier_emoji} Ranked Solo/Duo",
                     value=f"**{rank_display}**\n{wins}W - {losses}L ({winrate}%)",
                     inline=False
                 )
                 found_ranked = True
-        
+
         if not found_ranked:
             embed.add_field(
                 name="❌ Ranked Solo/Duo",
@@ -1430,7 +1438,7 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
             value="Unranked (No games played this season)",
             inline=False
         )
-    
+
     await interaction.followup.send(embed=embed)
 
 # Lancer le bot
