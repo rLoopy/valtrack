@@ -91,10 +91,10 @@ duo_puuid = None
 def ensure_db_connection():
     """Vérifie et rétablit la connexion DB si nécessaire"""
     global db_connection
-    
+
     if not POSTGRES_AVAILABLE or not DATABASE_URL:
         return False
-    
+
     try:
         # Tester si la connexion est active
         if db_connection and not db_connection.closed:
@@ -104,7 +104,7 @@ def ensure_db_connection():
             return True
     except Exception:
         pass
-    
+
     # Reconnexion nécessaire
     try:
         print("🔄 Reconnexion à PostgreSQL...", flush=True)
@@ -119,11 +119,11 @@ def ensure_db_connection():
 def init_database():
     """Initialize la connexion à la base de données et crée les tables"""
     global db_connection
-    
+
     if not POSTGRES_AVAILABLE or not DATABASE_URL:
         print("📁 Mode JSON: Pas de base de données PostgreSQL configurée")
         return False
-    
+
     try:
         db_connection = psycopg2.connect(DATABASE_URL)
         cursor = db_connection.cursor()
@@ -487,15 +487,15 @@ async def check_matches():
 
     if not CHANNEL_ID or not tracked_players:
         return
-    
+
     # Vérifier et rétablir la connexion DB si nécessaire
     ensure_db_connection()
-    
+
     channel = bot.get_channel(CHANNEL_ID)
     if not channel:
         print(f"⚠️ Impossible de trouver le canal avec l'ID {CHANNEL_ID}")
         return
-    
+
     # Vérifier chaque joueur tracké
     for puuid, player_info in list(tracked_players.items()):
         await check_player_match(channel, puuid, player_info)
@@ -771,20 +771,20 @@ async def check_lol_matches():
     """Vérifie périodiquement les nouveaux matchs LoL pour tous les joueurs trackés"""
     if not lol_tracker.tracked_players_lol:
         return
-    
+
     # Vérifier et rétablir la connexion DB si nécessaire
     ensure_db_connection()
-    
+
     # Utiliser LOL_CHANNEL_ID si défini, sinon CHANNEL_ID
     channel_id = LOL_CHANNEL_ID if LOL_CHANNEL_ID else CHANNEL_ID
     if not channel_id:
         return
-    
+
     channel = bot.get_channel(channel_id)
     if not channel:
         print(f"⚠️ Impossible de trouver le canal LoL avec l'ID {channel_id}")
         return
-    
+
     # Vérifier chaque joueur LoL tracké
     for puuid, player_info in list(lol_tracker.tracked_players_lol.items()):
         match_info = await lol_tracker.check_lol_player_match(db_connection, puuid, player_info)
@@ -1229,20 +1229,13 @@ async def test_api_command(interaction: discord.Interaction, name: str = None, t
 
 # ==================== COMMANDES LEAGUE OF LEGENDS ====================
 
-@bot.tree.command(name='addplayer-lol', description='Ajoute un invocateur LoL à tracker')
-@app_commands.describe(
-    riot_id='Riot ID complet (ex: ThroatGoat#Glucc)',
-    region='Région (euw1, na1, kr, etc.)'
-)
-@app_commands.choices(region=[
-    app_commands.Choice(name='EUW (Europe West)', value='euw1'),
-    app_commands.Choice(name='EUNE (Europe Nordic & East)', value='eun1'),
-    app_commands.Choice(name='NA (North America)', value='na1'),
-    app_commands.Choice(name='KR (Korea)', value='kr'),
-    app_commands.Choice(name='BR (Brazil)', value='br1'),
-])
-async def add_lol_player_command(interaction: discord.Interaction, riot_id: str, region: str):
+@bot.tree.command(name='addplayer-lol', description='Ajoute un invocateur LoL à tracker (EUW only)')
+@app_commands.describe(riot_id='Riot ID complet (ex: ThroatGoat#Glucc)')
+async def add_lol_player_command(interaction: discord.Interaction, riot_id: str):
     """Ajoute un invocateur LoL à tracker"""
+    
+    # Force EUW region
+    region = 'euw1'
 
     # Parser le Riot ID (nom#tag)
     if '#' not in riot_id:
@@ -1352,6 +1345,93 @@ async def list_lol_players_command(interaction: discord.Interaction):
         )
 
     await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name='rank-lol', description='Affiche le rang actuel d\'un invocateur LoL (EUW)')
+@app_commands.describe(riot_id='Riot ID complet (ex: ThroatGoat#Glucc)')
+async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
+    """Affiche le rang actuel d'un invocateur LoL"""
+    
+    # Parser le Riot ID (nom#tag)
+    if '#' not in riot_id:
+        await interaction.response.send_message(f"❌ Format invalide ! Utilisez le format **Nom#Tag** (ex: ThroatGoat#Glucc)")
+        return
+    
+    game_name, tag_line = riot_id.split('#', 1)
+    
+    await interaction.response.send_message(f"🔍 Recherche du rang de **{riot_id}**...")
+    
+    # Force EUW
+    region = 'euw1'
+    routing_region = 'europe'
+    
+    # Récupérer le compte Riot
+    account_info = lol_tracker.get_account_by_riot_id(game_name, tag_line, routing_region)
+    if not account_info:
+        await interaction.followup.send(f"❌ Compte Riot **{riot_id}** introuvable.")
+        return
+    
+    puuid = account_info.get('puuid')
+    
+    # Récupérer les infos du summoner
+    summoner_info = lol_tracker.get_summoner_by_puuid(puuid, region)
+    if not summoner_info:
+        await interaction.followup.send(f"❌ Impossible de récupérer les informations du summoner.")
+        return
+    
+    summoner_name = account_info.get('gameName')
+    summoner_tag = account_info.get('tagLine')
+    summoner_level = summoner_info.get('summonerLevel', 0)
+    summoner_id = summoner_info.get('id')
+    
+    if not summoner_id:
+        await interaction.followup.send(f"❌ Erreur lors de la récupération du summoner ID.")
+        return
+    
+    # Récupérer les stats ranked
+    ranked_stats = lol_tracker.get_summoner_ranked_stats(summoner_id, region)
+    
+    embed = discord.Embed(
+        title=f"🏆 Rang LoL - {summoner_name}#{summoner_tag}",
+        description=f"Niveau {summoner_level} • EUW",
+        color=discord.Color.blue(),
+        timestamp=datetime.now(timezone.utc)
+    )
+    
+    if ranked_stats:
+        found_ranked = False
+        for queue in ranked_stats:
+            if queue['queueType'] == 'RANKED_SOLO_5x5':
+                tier = queue['tier']
+                rank = queue['rank']
+                lp = queue['leaguePoints']
+                wins = queue['wins']
+                losses = queue['losses']
+                
+                tier_emoji = lol_tracker.get_tier_emoji(tier)
+                rank_display = lol_tracker.get_rank_display(tier, rank, lp)
+                winrate = round((wins / (wins + losses)) * 100) if (wins + losses) > 0 else 0
+                
+                embed.add_field(
+                    name=f"{tier_emoji} Ranked Solo/Duo",
+                    value=f"**{rank_display}**\n{wins}W - {losses}L ({winrate}%)",
+                    inline=False
+                )
+                found_ranked = True
+        
+        if not found_ranked:
+            embed.add_field(
+                name="❌ Ranked Solo/Duo",
+                value="Unranked (No games played this season)",
+                inline=False
+            )
+    else:
+        embed.add_field(
+            name="❌ Ranked",
+            value="Unranked (No games played this season)",
+            inline=False
+        )
+    
+    await interaction.followup.send(embed=embed)
 
 # Lancer le bot
 if __name__ == '__main__':
