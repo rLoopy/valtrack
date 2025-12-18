@@ -328,6 +328,28 @@ async def check_lol_player_match(db_connection, puuid, player_info):
                 player_stats = get_player_stats_from_match(match_data, puuid)
 
                 if player_stats:
+                    # Récupérer le summoner info pour avoir le summonerId
+                    summoner_info = get_summoner_by_puuid(puuid, region)
+                    
+                    # Récupérer le rang actuel
+                    ranked_info = None
+                    if summoner_info:
+                        summoner_id = summoner_info.get('id')
+                        if summoner_id:
+                            ranked_stats = get_summoner_ranked_stats(summoner_id, region)
+                            if ranked_stats:
+                                # Trouver les stats Ranked Solo/Duo
+                                for queue in ranked_stats:
+                                    if queue.get('queueType') == 'RANKED_SOLO_5x5':
+                                        ranked_info = {
+                                            'tier': queue.get('tier'),
+                                            'rank': queue.get('rank'),
+                                            'lp': queue.get('leaguePoints'),
+                                            'wins': queue.get('wins'),
+                                            'losses': queue.get('losses')
+                                        }
+                                        break
+                    
                     # Mettre à jour le dernier match ID
                     update_last_match_for_lol_player(db_connection, puuid, latest_match_id)
 
@@ -337,7 +359,8 @@ async def check_lol_player_match(db_connection, puuid, player_info):
                         'match_data': match_data,
                         'player_stats': player_stats,
                         'summoner_name': summoner_name,
-                        'region': region
+                        'region': region,
+                        'ranked_info': ranked_info
                     }
                 else:
                     print(f"[LoL - {summoner_name}] Joueur non trouvé dans le match {latest_match_id}")
@@ -358,6 +381,7 @@ def create_lol_match_embed(match_info, discord_module):
     player_stats = match_info['player_stats']
     summoner_name = match_info['summoner_name']
     match_id = match_info['match_id']
+    ranked_info = match_info.get('ranked_info')
 
     # Infos du match
     info = match_data['info']
@@ -514,7 +538,25 @@ def create_lol_match_embed(match_info, discord_module):
         value=kda_display,
         inline=True
     )
-
+    
+    # Rank actuel (si disponible)
+    if ranked_info:
+        tier = ranked_info['tier']
+        rank = ranked_info['rank']
+        lp = ranked_info['lp']
+        wins = ranked_info['wins']
+        losses = ranked_info['losses']
+        
+        tier_emoji = get_tier_emoji(tier)
+        rank_display = get_rank_display(tier, rank, lp)
+        winrate = round((wins / (wins + losses)) * 100) if (wins + losses) > 0 else 0
+        
+        embed.add_field(
+            name=f"{tier_emoji} Current Rank",
+            value=f"{rank_display}\n{wins}W {losses}L ({winrate}%)",
+            inline=True
+        )
+    
     # CS (Creep Score)
     embed.add_field(
         name="🗡️ CS",
