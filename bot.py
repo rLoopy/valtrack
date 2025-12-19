@@ -1407,16 +1407,29 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
     tier = ranked_stats.get('tier', 'GOLD').upper() if ranked_stats else 'GOLD'
     embed_color = tier_colors.get(tier, 0x5865F2)
 
+    # URL des emblèmes de rank LoL (Community Dragon)
+    rank_emblems = {
+        'IRON': 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-mini-crests/iron.png',
+        'BRONZE': 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-mini-crests/bronze.png',
+        'SILVER': 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-mini-crests/silver.png',
+        'GOLD': 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-mini-crests/gold.png',
+        'PLATINUM': 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-mini-crests/platinum.png',
+        'EMERALD': 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-mini-crests/emerald.png',
+        'DIAMOND': 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-mini-crests/diamond.png',
+        'MASTER': 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-mini-crests/master.png',
+        'GRANDMASTER': 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-mini-crests/grandmaster.png',
+        'CHALLENGER': 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-mini-crests/challenger.png',
+    }
+
     # Construire la description compacte et propre
     if ranked_stats:
         rank = ranked_stats.get('rank', '')
         lp = ranked_stats.get('lp', 0)
-        tier_emoji = lol_tracker.get_tier_emoji(tier)
         
-        # Rank principal
-        description = f"## {tier_emoji} {tier.title()} {rank} • {lp} LP\n"
+        # Rank principal (sans emoji, on utilise l'image)
+        description = f"## {tier.title()} {rank} • {lp} LP\n"
     else:
-        description = f"## ❌ Unranked\n"
+        description = f"## Unranked\n"
 
     # Ajouter la session du jour directement dans la description
     if daily_stats and daily_stats['games'] > 0:
@@ -1443,6 +1456,10 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
         color=embed_color,
         timestamp=datetime.now(timezone.utc)
     )
+    
+    # Ajouter l'icône du rank
+    if tier in rank_emblems:
+        embed.set_thumbnail(url=rank_emblems[tier])
 
     # ═══════════════════════════════════════════
     # 🎯 PLAT CHALLENGE - Style aéré
@@ -1500,7 +1517,6 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
             challenge_text += f"`{bar}` **{progress}%**\n"
             challenge_text += lp_box
             challenge_text += time_box
-            challenge_text += f"*{challenge['message']}*"
 
             embed.add_field(
                 name=f"{urgency_emoji} PLAT CHALLENGE",
