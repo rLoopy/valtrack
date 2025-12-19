@@ -1382,20 +1382,10 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
     summoner_tag = account_info.get('tagLine')
     summoner_level = summoner_info.get('summonerLevel', 0)
     
-    print(f"[Rank-LoL] Summoner info KEYS: {list(summoner_info.keys())}")
-    print(f"[Rank-LoL] Summoner info FULL: {summoner_info}")
+    print(f"[Rank-LoL] Utilisation du PUUID directement pour les stats ranked")
     
-    # Essayer de trouver l'ID sous différents noms possibles
-    summoner_id = summoner_info.get('id') or summoner_info.get('accountId') or summoner_info.get('summonerId')
-    
-    print(f"[Rank-LoL] Summoner ID trouvé: {summoner_id}")
-
-    if not summoner_id:
-        await interaction.followup.send(f"❌ Le champ 'id' n'existe pas dans la réponse de l'API Riot.\n**Clés disponibles:** {', '.join(summoner_info.keys())}\n\nRégénérez votre clé API sur developer.riotgames.com")
-        return
-
-    # Récupérer les stats ranked
-    ranked_stats = lol_tracker.get_summoner_ranked_stats(summoner_id, region)
+    # Récupérer les stats ranked DIRECTEMENT avec le PUUID (l'API ne retourne plus le summoner ID)
+    ranked_stats = lol_tracker.get_ranked_stats_by_puuid(puuid, region)
 
     embed = discord.Embed(
         title=f"🏆 Rang LoL - {summoner_name}#{summoner_tag}",

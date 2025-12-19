@@ -185,7 +185,7 @@ def get_summoner_by_puuid(puuid, region='euw1'):
         return None
 
 def get_summoner_ranked_stats(summoner_id, region='euw1'):
-    """Récupère les stats ranked d'un invocateur"""
+    """Récupère les stats ranked d'un invocateur (DEPRECATED - utiliser get_ranked_stats_by_puuid)"""
     if not RIOT_API_KEY:
         return None
 
@@ -203,6 +203,44 @@ def get_summoner_ranked_stats(summoner_id, region='euw1'):
         return response.json()
     except requests.exceptions.RequestException as e:
         print(f"Erreur lors de la récupération des stats ranked: {e}")
+        return None
+
+def get_ranked_stats_by_puuid(puuid, region='euw1'):
+    """Récupère les stats ranked d'un invocateur par son PUUID (méthode moderne)"""
+    if not RIOT_API_KEY:
+        print("⚠️ RIOT_API_KEY non configurée")
+        return None
+
+    # L'API Riot ne fournit pas d'endpoint direct /by-puuid/ pour les ranked stats
+    # On doit d'abord récupérer le summoner ID via le summoner endpoint
+    # Mais comme le summoner endpoint ne retourne plus l'ID, on utilise une approche alternative
+    
+    # SOLUTION: Utiliser l'endpoint match-v5 qui accepte le PUUID
+    # OU chercher le joueur via la liste des challengers/grandmasters/masters
+    
+    # Pour l'instant, essayons l'endpoint league-v4 avec PUUID directement
+    url = f'https://{region}.api.riotgames.com/lol/league/v4/entries/by-puuid/{puuid}'
+    headers = {'X-Riot-Token': RIOT_API_KEY}
+    
+    print(f"[DEBUG] Trying ranked stats by PUUID: {url}")
+
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        print(f"[DEBUG] Ranked stats status code: {response.status_code}")
+
+        if response.status_code == 429:
+            print("⚠️ Rate limit atteint")
+            return None
+        elif response.status_code == 404:
+            print("⚠️ Endpoint /by-puuid/ n'existe pas pour les ranked stats")
+            return None
+
+        response.raise_for_status()
+        data = response.json()
+        print(f"[DEBUG] Ranked stats data: {data}")
+        return data
+    except requests.exceptions.RequestException as e:
+        print(f"Erreur lors de la récupération des stats ranked par PUUID: {e}")
         return None
 
 def get_recent_matches(puuid, routing_region='europe', count=20):
