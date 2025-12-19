@@ -1410,15 +1410,56 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
             value=f"**{rank_display}**\n{wins}W - {losses}L ({winrate}%)",
             inline=False
         )
-
-        embed.set_footer(text="Data from Riot Games API")
     else:
         embed.add_field(
             name="❌ Ranked",
-            value="Player is Unranked or rank data unavailable\n(Riot API limitation)",
+            value="Player is Unranked or rank data unavailable",
             inline=False
         )
-        embed.set_footer(text="Note: Player is unranked or rank data unavailable")
+
+    # Récupérer les stats des dernières 24h
+    daily_stats = lol_tracker.get_daily_stats(puuid, region)
+    
+    if daily_stats and daily_stats['games'] > 0:
+        daily_wins = daily_stats['wins']
+        daily_losses = daily_stats['losses']
+        daily_games = daily_stats['games']
+        
+        # Emoji basé sur la performance
+        if daily_wins > daily_losses:
+            daily_emoji = "📈"
+            daily_color = "green"
+        elif daily_losses > daily_wins:
+            daily_emoji = "📉"
+            daily_color = "red"
+        else:
+            daily_emoji = "➖"
+            daily_color = "yellow"
+        
+        # Champions joués (max 3)
+        champions_played = daily_stats['champions'][:3]
+        champs_text = ", ".join(champions_played) if champions_played else "N/A"
+        if len(daily_stats['champions']) > 3:
+            champs_text += f" +{len(daily_stats['champions']) - 3}"
+        
+        # KDA moyen
+        avg_kda = ""
+        if 'avg_kills' in daily_stats:
+            avg_kda = f"\nAvg KDA: {daily_stats['avg_kills']}/{daily_stats['avg_deaths']}/{daily_stats['avg_assists']}"
+        
+        embed.add_field(
+            name=f"{daily_emoji} Last 24 Hours",
+            value=f"**{daily_wins}W - {daily_losses}L** ({daily_games} games){avg_kda}\nChampions: {champs_text}",
+            inline=False
+        )
+    else:
+        embed.add_field(
+            name="📊 Last 24 Hours",
+            value="No ranked games played",
+            inline=False
+        )
+
+    embed.set_footer(text="Data from OP.GG + Riot Games API")
 
     await interaction.followup.send(embed=embed)
 

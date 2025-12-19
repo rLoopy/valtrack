@@ -301,13 +301,13 @@ def scrape_opgg_rank(game_name, tag_line, region='euw'):
             return None
 
         html = response.text
-        
+
         # Debug: Log HTML length and check for common elements
         print(f"[OP.GG] HTML length: {len(html)} chars")
 
         # Parser le HTML pour extraire les infos de rank
         rank_data = {}
-        
+
         # OP.GG utilise Next.js - chercher les données dans __NEXT_DATA__
         next_data_match = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.DOTALL)
         if next_data_match:
@@ -315,7 +315,7 @@ def scrape_opgg_rank(game_name, tag_line, region='euw'):
                 import json
                 next_data = json.loads(next_data_match.group(1))
                 print(f"[OP.GG] Found __NEXT_DATA__ JSON")
-                
+
                 # Naviguer dans la structure JSON pour trouver les données de rank
                 # La structure peut varier, chercher récursivement
                 def find_ranked_data(obj, path=""):
@@ -324,7 +324,7 @@ def scrape_opgg_rank(game_name, tag_line, region='euw'):
                         if obj.get('queueType') == 'RANKED_SOLO_5x5':
                             print(f"[OP.GG] Found RANKED_SOLO_5x5 at {path}")
                             return obj
-                        # Chercher par tier directement  
+                        # Chercher par tier directement
                         if 'tier' in obj and 'lp' in obj:
                             tier = obj.get('tier', '')
                             if tier and tier.upper() in ['IRON', 'BRONZE', 'SILVER', 'GOLD', 'PLATINUM', 'EMERALD', 'DIAMOND', 'MASTER', 'GRANDMASTER', 'CHALLENGER']:
@@ -340,7 +340,7 @@ def scrape_opgg_rank(game_name, tag_line, region='euw'):
                             if result:
                                 return result
                     return None
-                
+
                 ranked_obj = find_ranked_data(next_data)
                 if ranked_obj:
                     rank_data['tier'] = ranked_obj.get('tier', '').upper()
@@ -541,6 +541,83 @@ def get_recent_matches(puuid, routing_region='europe', count=20):
     except requests.exceptions.RequestException as e:
         print(f"Erreur lors de la récupération des matchs: {e}")
         return []
+
+
+def get_daily_stats(puuid, region='euw1'):
+    """
+    Récupère les stats des dernières 24 heures pour un joueur.
+    Retourne: {'wins': X, 'losses': Y, 'games': Z, 'champions': [...]}
+    """
+    from datetime import timedelta
+    
+    if not RIOT_API_KEY:
+        return None
+    
+    routing_region = REGION_TO_ROUTING.get(region, 'europe')
+    
+    # Timestamp d'il y a 24 heures (en secondes)
+    now = datetime.now(timezone.utc)
+    twenty_four_hours_ago = int((now - timedelta(hours=24)).timestamp())
+    
+    print(f"[DailyStats] Fetching matches from last 24h...")
+    
+    # Récupérer les 20 derniers matchs ranked
+    match_ids = get_recent_matches(puuid, routing_region, count=20)
+    
+    if not match_ids:
+        print("[DailyStats] No matches found")
+        return {'wins': 0, 'losses': 0, 'games': 0, 'champions': []}
+    
+    daily_stats = {
+        'wins': 0,
+        'losses': 0,
+        'games': 0,
+        'champions': [],
+        'total_kills': 0,
+        'total_deaths': 0,
+        'total_assists': 0
+    }
+    
+    for match_id in match_ids:
+        # Récupérer les détails du match
+        match_data = get_match_details(match_id, routing_region)
+        
+        if not match_data:
+            continue
+        
+        # Vérifier si le match est dans les dernières 24h
+        game_end_timestamp = match_data.get('info', {}).get('gameEndTimestamp', 0) // 1000  # ms -> s
+        
+        if game_end_timestamp < twenty_four_hours_ago:
+            # Match trop vieux, arrêter (les matchs sont triés du plus récent au plus ancien)
+            print(f"[DailyStats] Match {match_id[:10]}... is older than 24h, stopping")
+            break
+        
+        # Trouver les stats du joueur dans ce match
+        player_stats = get_player_stats_from_match(match_data, puuid)
+        
+        if player_stats:
+            daily_stats['games'] += 1
+            
+            if player_stats['win']:
+                daily_stats['wins'] += 1
+            else:
+                daily_stats['losses'] += 1
+            
+            daily_stats['champions'].append(player_stats['championName'])
+            daily_stats['total_kills'] += player_stats['kills']
+            daily_stats['total_deaths'] += player_stats['deaths']
+            daily_stats['total_assists'] += player_stats['assists']
+    
+    # Calculer le KDA moyen
+    if daily_stats['games'] > 0:
+        daily_stats['avg_kills'] = round(daily_stats['total_kills'] / daily_stats['games'], 1)
+        daily_stats['avg_deaths'] = round(daily_stats['total_deaths'] / daily_stats['games'], 1)
+        daily_stats['avg_assists'] = round(daily_stats['total_assists'] / daily_stats['games'], 1)
+    
+    print(f"[DailyStats] Last 24h: {daily_stats['wins']}W {daily_stats['losses']}L ({daily_stats['games']} games)")
+    
+    return daily_stats
 
 def get_match_details(match_id, routing_region='europe'):
     """Récupère les détails d'un match LoL"""
