@@ -5,7 +5,17 @@ Fonctions et utilitaires pour tracker les matchs LoL
 
 import requests
 import os
+import re
+import time
 from datetime import datetime, timezone
+
+# Cloudscraper for bypassing Cloudflare
+try:
+    import cloudscraper
+    CLOUDSCRAPER_AVAILABLE = True
+except ImportError:
+    CLOUDSCRAPER_AVAILABLE = False
+    print("⚠️ cloudscraper not installed - OP.GG scraping will be limited")
 
 # Configuration
 RIOT_API_KEY = os.getenv('RIOT_API_KEY')
@@ -257,43 +267,203 @@ def get_ranked_stats_by_puuid(puuid, region='euw1'):
         print(f"Erreur lors de la récupération des stats ranked par PUUID: {e}")
         return None
 
+def scrape_opgg_rank(game_name, tag_line, region='euw'):
+    """
+    Scrape le rank depuis OP.GG en utilisant cloudscraper pour bypass Cloudflare.
+    """
+    if not CLOUDSCRAPER_AVAILABLE:
+        print("[OP.GG] cloudscraper not available")
+        return None
+    
+    try:
+        # Créer un scraper qui peut bypass Cloudflare
+        scraper = cloudscraper.create_scraper(
+            browser={
+                'browser': 'chrome',
+                'platform': 'windows',
+                'mobile': False
+            }
+        )
+        
+        # Formater le nom pour l'URL OP.GG (espaces -> %20, # -> -)
+        formatted_name = f"{game_name}-{tag_line}".replace(' ', '%20')
+        url = f"https://www.op.gg/summoners/{region}/{formatted_name}"
+        
+        print(f"[OP.GG] Scraping rank from: {url}")
+        
+        # Ajouter un petit délai pour éviter le rate limit
+        time.sleep(1)
+        
+        response = scraper.get(url, timeout=15)
+        
+        if response.status_code != 200:
+            print(f"[OP.GG] HTTP error {response.status_code}")
+            return None
+        
+        html = response.text
+        
+        # Parser le HTML pour extraire les infos de rank
+        rank_data = {}
+        
+        # Chercher le tier (ex: "Emerald 2", "Gold 1", etc.)
+        # OP.GG utilise des classes comme "tier-rank" ou affiche dans un span
+        tier_patterns = [
+            r'<div[^>]*class="[^"]*tier[^"]*"[^>]*>([^<]+)</div>',
+            r'"tier":\s*"([^"]+)"',
+            r'tier-([A-Za-z]+)',
+            r'class="tier">([^<]+)<',
+        ]
+        
+        for pattern in tier_patterns:
+            match = re.search(pattern, html, re.IGNORECASE)
+            if match:
+                tier_text = match.group(1).strip()
+                if tier_text and tier_text.lower() not in ['unranked', 'none', '']:
+                    rank_data['tier_full'] = tier_text
+                    print(f"[OP.GG] Tier found: {tier_text}")
+                    break
+        
+        # Chercher LP
+        lp_patterns = [
+            r'(\d+)\s*LP',
+            r'"leaguePoints":\s*(\d+)',
+            r'lp">(\d+)<',
+        ]
+        
+        for pattern in lp_patterns:
+            match = re.search(pattern, html)
+            if match:
+                rank_data['lp'] = int(match.group(1))
+                print(f"[OP.GG] LP found: {rank_data['lp']}")
+                break
+        
+        # Chercher wins/losses
+        wl_patterns = [
+            r'(\d+)W\s+(\d+)L',
+            r'"wins":\s*(\d+).*?"losses":\s*(\d+)',
+            r'>(\d+)W<.*?>(\d+)L<',
+        ]
+        
+        for pattern in wl_patterns:
+            match = re.search(pattern, html, re.DOTALL)
+            if match:
+                rank_data['wins'] = int(match.group(1))
+                rank_data['losses'] = int(match.group(2))
+                print(f"[OP.GG] W/L found: {rank_data['wins']}W {rank_data['losses']}L")
+                break
+        
+        # Chercher le rang dans le JSON embarqué (OP.GG utilise souvent du JSON dans la page)
+        json_match = re.search(r'"queueType":\s*"RANKED_SOLO_5x5"[^}]*"tier":\s*"([^"]+)"[^}]*"rank":\s*"([^"]+)"', html)
+        if json_match:
+            tier = json_match.group(1)
+            rank = json_match.group(2)
+            rank_data['tier'] = tier
+            rank_data['rank'] = rank
+            rank_data['tier_full'] = f"{tier} {rank}"
+            print(f"[OP.GG] Found from JSON: {tier} {rank}")
+        
+        if rank_data and ('tier_full' in rank_data or 'tier' in rank_data):
+            print(f"[OP.GG] Rank data scraped successfully: {rank_data}")
+            return rank_data
+        else:
+            print("[OP.GG] No rank data found in page")
+            return None
+            
+    except Exception as e:
+        print(f"[OP.GG] Error scraping: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
 def get_rank_from_riot_api(puuid, region='euw1'):
     """
     Essaie de récupérer le rank via l'API Riot.
-    Note: L'API Riot a changé et ne retourne plus le summoner ID via /by-puuid/.
-    Cette fonction essaie plusieurs méthodes.
+    Méthode 1: Direct /by-summoner/ si on a le summoner ID
     """
     if not RIOT_API_KEY:
         return None
 
-    # Méthode 1: Essayer l'endpoint direct /by-puuid/ pour les ranked stats (peut ne pas exister)
-    try:
-        url = f'https://{region}.api.riotgames.com/lol/league/v4/entries/by-puuid/{puuid}'
-        headers = {'X-Riot-Token': RIOT_API_KEY}
-        response = requests.get(url, headers=headers, timeout=10)
+    # D'abord récupérer les infos du summoner pour avoir le summoner ID
+    summoner_info = get_summoner_by_puuid(puuid, region)
+    
+    if summoner_info and 'id' in summoner_info:
+        summoner_id = summoner_info['id']
+        print(f"[Rank] Got summoner ID: {summoner_id[:10]}...")
+        
+        # Utiliser l'endpoint /by-summoner/
+        try:
+            url = f'https://{region}.api.riotgames.com/lol/league/v4/entries/by-summoner/{summoner_id}'
+            headers = {'X-Riot-Token': RIOT_API_KEY}
+            response = requests.get(url, headers=headers, timeout=10)
+            
+            if response.status_code == 200:
+                data = response.json()
+                for entry in data:
+                    if entry.get('queueType') == 'RANKED_SOLO_5x5':
+                        return {
+                            'tier': entry.get('tier', 'Unranked'),
+                            'rank': entry.get('rank', ''),
+                            'lp': entry.get('leaguePoints', 0),
+                            'wins': entry.get('wins', 0),
+                            'losses': entry.get('losses', 0)
+                        }
+                print("[Rank] No Solo/Duo stats found")
+            else:
+                print(f"[Rank] API error: {response.status_code}")
+        except Exception as e:
+            print(f"[Rank] Error: {e}")
+    else:
+        print("[Rank] No summoner ID available from Riot API")
+    
+    return None
 
-        if response.status_code == 200:
-            data = response.json()
-            # Chercher les stats Solo/Duo
-            for entry in data:
-                if entry.get('queueType') == 'RANKED_SOLO_5x5':
-                    return {
-                        'tier': entry.get('tier', 'Unranked'),
-                        'rank': entry.get('rank', ''),
-                        'lp': entry.get('leaguePoints', 0),
-                        'wins': entry.get('wins', 0),
-                        'losses': entry.get('losses', 0)
-                    }
-            # Si pas de Solo/Duo, retourner None
-            print(f"[Rank] No Solo/Duo stats found for PUUID")
-            return None
-        elif response.status_code == 404:
-            print(f"[Rank] Endpoint /by-puuid/ not available (404)")
-        else:
-            print(f"[Rank] API error: {response.status_code}")
-    except Exception as e:
-        print(f"[Rank] Error fetching rank: {e}")
 
+def get_rank_comprehensive(puuid, game_name, tag_line, region='euw1'):
+    """
+    Récupère le rank en essayant plusieurs méthodes:
+    1. API Riot (si summoner ID disponible)
+    2. Scraping OP.GG (avec cloudscraper pour bypass Cloudflare)
+    """
+    
+    # Méthode 1: Essayer l'API Riot d'abord
+    print(f"[Rank] Trying Riot API...")
+    rank_data = get_rank_from_riot_api(puuid, region)
+    
+    if rank_data:
+        print(f"[Rank] Got rank from Riot API: {rank_data['tier']} {rank_data['rank']}")
+        return rank_data
+    
+    # Méthode 2: Scraper OP.GG si l'API Riot n'a pas fonctionné
+    print(f"[Rank] Riot API failed, trying OP.GG scraping...")
+    opgg_region = 'euw' if region == 'euw1' else region.replace('1', '')
+    opgg_data = scrape_opgg_rank(game_name, tag_line, opgg_region)
+    
+    if opgg_data:
+        # Convertir le format OP.GG vers le format standard
+        tier_full = opgg_data.get('tier_full', '')
+        tier = opgg_data.get('tier', '')
+        rank = opgg_data.get('rank', '')
+        
+        # Si on a tier_full mais pas tier/rank séparés, parser
+        if tier_full and not tier:
+            parts = tier_full.split()
+            if len(parts) >= 2:
+                tier = parts[0].upper()
+                rank = parts[1] if len(parts) > 1 else ''
+            else:
+                tier = tier_full.upper()
+                rank = ''
+        
+        return {
+            'tier': tier,
+            'rank': rank,
+            'lp': opgg_data.get('lp', 0),
+            'wins': opgg_data.get('wins', 0),
+            'losses': opgg_data.get('losses', 0)
+        }
+    
+    print("[Rank] All methods failed - player might be unranked")
     return None
 
 def get_recent_matches(puuid, routing_region='europe', count=20):
@@ -428,15 +598,34 @@ async def check_lol_player_match(db_connection, puuid, player_info):
                 player_stats = get_player_stats_from_match(match_data, puuid)
 
                 if player_stats:
-                    # Essayer de récupérer le rang actuel via l'API Riot
+                    # Essayer de récupérer le rang actuel (API Riot + OP.GG fallback)
                     ranked_info = None
                     try:
-                        print(f"[LoL - {summoner_name}] Fetching rank from Riot API...")
-                        ranked_info = get_rank_from_riot_api(puuid, region)
+                        # Récupérer le Riot ID pour OP.GG
+                        routing_region_api = REGION_TO_ROUTING.get(region, 'europe')
+                        game_name = None
+                        tag_line = None
+                        
+                        try:
+                            account_response = requests.get(
+                                f'{RIOT_API_BASE[routing_region_api]}/riot/account/v1/accounts/by-puuid/{puuid}',
+                                headers={'X-Riot-Token': RIOT_API_KEY},
+                                timeout=10
+                            )
+                            if account_response.status_code == 200:
+                                account_data = account_response.json()
+                                game_name = account_data.get('gameName')
+                                tag_line = account_data.get('tagLine')
+                        except Exception as e:
+                            print(f"[LoL - {summoner_name}] Error fetching Riot ID: {e}")
+                        
+                        print(f"[LoL - {summoner_name}] Fetching rank (Riot API + OP.GG fallback)...")
+                        ranked_info = get_rank_comprehensive(puuid, game_name, tag_line, region)
+                        
                         if ranked_info:
                             print(f"[LoL - {summoner_name}] Rank found: {ranked_info['tier']} {ranked_info['rank']} - {ranked_info['lp']} LP")
                         else:
-                            print(f"[LoL - {summoner_name}] Rank not available (unranked or API limitation)")
+                            print(f"[LoL - {summoner_name}] Rank not available (unranked)")
                     except Exception as e:
                         print(f"[LoL - {summoner_name}] Error fetching rank: {e}")
 

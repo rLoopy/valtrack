@@ -1382,10 +1382,10 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
     summoner_tag = account_info.get('tagLine')
     summoner_level = summoner_info.get('summonerLevel', 0)
 
-    print(f"[Rank-LoL] Fetching rank from Riot API...")
+    print(f"[Rank-LoL] Fetching rank (Riot API + OP.GG fallback)...")
 
-    # Utiliser l'API Riot pour récupérer le rank
-    ranked_stats = lol_tracker.get_rank_from_riot_api(puuid, region)
+    # Utiliser la méthode comprehensive (API Riot + OP.GG fallback)
+    ranked_stats = lol_tracker.get_rank_comprehensive(puuid, summoner_name, summoner_tag, region)
 
     embed = discord.Embed(
         title=f"🏆 LoL Rank - {summoner_name}#{summoner_tag}",
@@ -1418,7 +1418,7 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
             value="Player is Unranked or rank data unavailable\n(Riot API limitation)",
             inline=False
         )
-        embed.set_footer(text="Note: Riot API may not return rank data for some accounts")
+        embed.set_footer(text="Note: Player is unranked or rank data unavailable")
 
     await interaction.followup.send(embed=embed)
 
