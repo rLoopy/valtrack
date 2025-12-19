@@ -430,7 +430,7 @@ class ReactionView(discord.ui.View):
 async def on_ready():
     """Événement déclenché quand le bot est prêt"""
     print(f'{bot.user} est connecté!', flush=True)
-    
+
     # Initialiser la base de données
     init_database()
 
@@ -449,7 +449,7 @@ async def on_ready():
     # Charger les joueurs trackés LoL
     lol_tracker.tracked_players_lol = lol_tracker.load_lol_players_from_db(db_connection)
     print(f"Joueurs LoL trackés chargés: {len(lol_tracker.tracked_players_lol)}", flush=True)
-    
+
     # Ajouter le joueur par défaut depuis .env s'il existe et n'est pas déjà tracké
     if DUO_NAME and DUO_TAG:
         print(f"Vérification du joueur par défaut: {DUO_NAME}#{DUO_TAG}...", flush=True)
@@ -462,7 +462,7 @@ async def on_ready():
                 add_tracked_player(DUO_NAME, DUO_TAG, puuid)
             else:
                 print(f"Joueur déjà tracké: {DUO_NAME}#{DUO_TAG}", flush=True)
-    
+
     # Démarrer la vérification des matchs Valorant
     if CHANNEL_ID:
         check_matches.start()
@@ -487,7 +487,7 @@ async def check_matches():
 
     if not CHANNEL_ID or not tracked_players:
         return
-    
+
     # Vérifier et rétablir la connexion DB si nécessaire
     ensure_db_connection()
 
@@ -495,7 +495,7 @@ async def check_matches():
     if not channel:
         print(f"⚠️ Impossible de trouver le canal avec l'ID {CHANNEL_ID}")
         return
-    
+
     # Vérifier chaque joueur tracké
     for puuid, player_info in list(tracked_players.items()):
         await check_player_match(channel, puuid, player_info)
@@ -506,7 +506,7 @@ async def check_player_match(channel, puuid, player_info):
         name = player_info['name']
         tag = player_info['tag']
         last_match_id = player_info.get('last_match_id')
-        
+
         # Récupérer l'historique MMR pour ce joueur (5 matchs pour détecter les streaks)
         mmr_history = get_mmr_history(name, tag, region='eu', size=5)
 
@@ -515,14 +515,14 @@ async def check_player_match(channel, puuid, player_info):
             return
         elif not mmr_history or len(mmr_history) == 0:
             return
-        
+
         latest_mmr = mmr_history[0]
         latest_match_id = latest_mmr.get('match_id')
         rr_change = latest_mmr.get('mmr_change_to_last_game', 0)
         current_rank = latest_mmr.get('currenttierpatched', 'Unknown')
         current_rr = latest_mmr.get('ranking_in_tier', 0)
         elo = latest_mmr.get('elo', 0)
-        
+
         # Détecter les streaks
         current_streak = 0
         streak_type = None  # 'win' ou 'loss'
@@ -544,7 +544,7 @@ async def check_player_match(channel, puuid, player_info):
         # Si c'est un nouveau match pour ce joueur
         if latest_match_id != last_match_id:
             print(f"[{name}#{tag}] Nouveau match détecté: {latest_match_id}")
-            
+
             # Vérifier si le match n'a pas déjà été posté dans le channel
             already_posted = await check_if_match_already_posted(channel, latest_match_id)
             if already_posted:
@@ -554,11 +554,11 @@ async def check_player_match(channel, puuid, player_info):
 
             # Récupérer les détails du match
             match_data = get_match_details(latest_match_id)
-            
+
             if match_data is None:
                 # Rate limit
                 return
-            
+
             if match_data:
                 # Obtenir les stats du joueur
                 player_stats = get_player_stats_from_match(match_data, puuid)
@@ -818,20 +818,20 @@ async def test_command(interaction: discord.Interaction):
 async def status_command(interaction: discord.Interaction):
     """Affiche le statut du bot"""
     global tracked_players
-    
+
     embed = discord.Embed(
         title="Status du bot",
         color=discord.Color.blue()
     )
-    
+
     embed.add_field(name="Bot", value="🟢 Actif", inline=True)
     embed.add_field(name="Joueurs trackés", value=f"{len(tracked_players)}", inline=True)
     embed.add_field(name="Intervalle", value=f"{POLL_INTERVAL}s", inline=True)
-    
+
     if tracked_players:
         players_list = "\n".join([f"• {p['name']}#{p['tag']}" for p in tracked_players.values()])
         embed.add_field(name="Liste des joueurs", value=players_list, inline=False)
-    
+
     await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name='forcecheck', description='Force une vérification immédiate des matchs')
@@ -847,29 +847,29 @@ async def force_check_command(interaction: discord.Interaction):
 async def add_player_command(interaction: discord.Interaction, name: str, tag: str):
     """Ajoute un joueur à tracker"""
     global tracked_players
-    
+
     await interaction.response.send_message(f"🔍 Recherche de {name}#{tag}...")
-    
+
     # Récupérer les infos du compte
     account_info = get_account_info(name, tag)
     if not account_info:
         await interaction.followup.send(f"❌ Joueur {name}#{tag} introuvable. Vérifiez le nom et le tag.")
         return
-    
+
     puuid = account_info.get('puuid')
     real_name = account_info.get('name')
     real_tag = account_info.get('tag')
     level = account_info.get('account_level')
     region = account_info.get('region')
-    
+
     # Vérifier si déjà tracké
     if puuid in tracked_players:
         await interaction.followup.send(f"⚠️ {real_name}#{real_tag} est déjà dans la liste de tracking !")
         return
-    
+
     # Ajouter le joueur
     add_tracked_player(real_name, real_tag, puuid)
-    
+
     embed = discord.Embed(
         title="✅ Joueur ajouté !",
         description=f"**{real_name}#{real_tag}** est maintenant tracké",
@@ -878,7 +878,7 @@ async def add_player_command(interaction: discord.Interaction, name: str, tag: s
     embed.add_field(name="Région", value=region.upper(), inline=True)
     embed.add_field(name="Niveau", value=level, inline=True)
     embed.add_field(name="Total trackés", value=len(tracked_players), inline=True)
-    
+
     await interaction.followup.send(embed=embed)
 
 @bot.tree.command(name='removeplayer', description='Retire un joueur du tracking')
@@ -886,18 +886,18 @@ async def add_player_command(interaction: discord.Interaction, name: str, tag: s
 async def remove_player_command(interaction: discord.Interaction, name: str, tag: str):
     """Retire un joueur du tracking"""
     global tracked_players
-    
+
     # Trouver le joueur dans la liste
     puuid_to_remove = None
     for puuid, player_info in tracked_players.items():
         if player_info['name'].lower() == name.lower() and player_info['tag'].lower() == tag.lower():
             puuid_to_remove = puuid
             break
-    
+
     if not puuid_to_remove:
         await interaction.response.send_message(f"❌ {name}#{tag} n'est pas dans la liste de tracking")
         return
-    
+
     # Retirer le joueur
     remove_tracked_player(puuid_to_remove)
     await interaction.response.send_message(f"✅ {name}#{tag} retiré du tracking")
@@ -906,29 +906,29 @@ async def remove_player_command(interaction: discord.Interaction, name: str, tag
 async def list_players_command(interaction: discord.Interaction):
     """Liste tous les joueurs trackés"""
     global tracked_players
-    
+
     if not tracked_players:
         await interaction.response.send_message("📋 Aucun joueur tracké pour le moment.\nUtilisez `/addplayer nom tag` pour en ajouter.")
         return
-    
+
     embed = discord.Embed(
         title="📋 Joueurs trackés",
         description=f"{len(tracked_players)} joueur(s) surveillé(s)",
         color=discord.Color.blue()
     )
-    
+
     for player_info in tracked_players.values():
         name = player_info['name']
         tag = player_info['tag']
         last_match = player_info.get('last_match_id', 'Aucun')
         last_match_short = last_match[:8] + "..." if last_match and last_match != 'Aucun' else 'Aucun'
-        
+
         embed.add_field(
             name=f"{name}#{tag}",
             value=f"Dernier match: `{last_match_short}`",
             inline=False
         )
-    
+
     await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name='stats', description='Affiche les statistiques détaillées d\'un joueur')
@@ -1200,18 +1200,18 @@ async def test_api_command(interaction: discord.Interaction, name: str = None, t
         else:
             await interaction.response.send_message("❌ Spécifiez un joueur: /testapi nom:xxx tag:xxx")
             return
-    
+
     await interaction.response.send_message(f"🔍 Test de l'API pour {name}#{tag}...")
-    
+
     # Tester l'endpoint account
     account_info = get_account_info(name, tag)
     if account_info:
         puuid = account_info.get('puuid')
         await interaction.followup.send(f"✅ Compte trouvé - PUUID: `{puuid[:8]}...`")
-        
+
         # Tester l'endpoint MMR history (le seul qui fonctionne)
         mmr_history = get_mmr_history(name, tag, region='eu', size=3)
-        
+
         if mmr_history is None:
             await interaction.followup.send("⚠️ Rate limit atteint")
         elif mmr_history:
@@ -1224,7 +1224,7 @@ async def test_api_command(interaction: discord.Interaction, name: str = None, t
                 map_name = mmr.get('map', {}).get('name', 'N/A')
                 result += f"{i}. {rank} | {'+' if rr > 0 else ''}{rr} RR | {map_name}\n"
                 result += f"   Match ID: {match_id[:8]}...\n"
-            
+
             await interaction.followup.send(f"```\n{result}\n```")
         else:
             await interaction.followup.send("❌ Aucun match trouvé dans l'historique MMR")
@@ -1397,10 +1397,10 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
     # ═══════════════════════════════════════════════════════════════
     # STYLE RECON - Deep Purple #7B2FBE
     # ═══════════════════════════════════════════════════════════════
-    
+
     tier = ranked_stats.get('tier', 'UNRANKED').upper() if ranked_stats else 'UNRANKED'
     embed_color = discord.Color.from_rgb(123, 47, 190)  # Deep purple Recon
-    
+
     # URL des emblèmes de rank LoL (Community Dragon)
     rank_emblems = {
         'IRON': 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-mini-crests/iron.png',
@@ -1414,34 +1414,34 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
         'GRANDMASTER': 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-mini-crests/grandmaster.png',
         'CHALLENGER': 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-mini-crests/challenger.png',
     }
-    
+
     # ══════════════════════════════════════════════════════════════
     # DESCRIPTION - Style Recon
     # ══════════════════════════════════════════════════════════════
-    
+
     if ranked_stats:
         rank = ranked_stats.get('rank', '')
         lp = ranked_stats.get('lp', 0)
-        
+
         # LP progress bar
         lp_filled = int(lp / 10)
         lp_empty = 10 - lp_filled
         lp_bar = "▮" * lp_filled + "▯" * lp_empty
-        
+
         description = f"# {tier.upper()} {rank}\n"
         description += f"### {lp} LP\n"
         description += f"`{lp_bar}`\n"
     else:
         description = f"# UNRANKED\n"
         description += f"### No ranked data\n"
-    
+
     # Daily stats dans la description
     if daily_stats and daily_stats['games'] > 0:
         daily_wins = daily_stats['wins']
         daily_losses = daily_stats['losses']
         daily_games = daily_stats['games']
         daily_wr = round((daily_wins / daily_games) * 100) if daily_games > 0 else 0
-        
+
         # Status icon
         if daily_wr >= 60:
             status = "▲"
@@ -1449,22 +1449,22 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
             status = "►"
         else:
             status = "▼"
-        
+
         description += f"\n**Today** {status} {daily_wins}W · {daily_losses}L ({daily_wr}%)"
     else:
         description += f"\n**Today** — No games"
-    
+
     embed = discord.Embed(
         title=f"▸ {summoner_name}#{summoner_tag}",
         description=description,
         color=embed_color,
         timestamp=datetime.now(timezone.utc)
     )
-    
+
     # Thumbnail avec emblème du rank
     if tier in rank_emblems:
         embed.set_thumbnail(url=rank_emblems[tier])
-    
+
     # ═══════════════════════════════════════════
     # PLAT CHALLENGE - Style Recon
     # ═══════════════════════════════════════════
@@ -1474,13 +1474,13 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
             ranked_stats.get('rank', ''),
             ranked_stats.get('lp', 0)
         )
-        
+
         if challenge['completed']:
             challenge_value = "```\n"
             challenge_value += "  ✦ CHALLENGE COMPLETED ✦\n"
             challenge_value += "     Welcome to Platinum\n"
             challenge_value += "```"
-            
+
             embed.add_field(
                 name="▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬",
                 value=challenge_value,
@@ -1491,23 +1491,23 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
             hours = challenge['hours_remaining']
             progress = challenge['progress_percent']
             lp_needed = challenge['lp_needed']
-            
+
             # Progress bar Recon style
             filled = int(progress / 5)  # 20 segments
             empty = 20 - filled
             bar = "▮" * filled + "▯" * empty
-            
+
             # Parcours
             start_display = f"{challenge.get('start_tier', 'Silver')[0]}{challenge.get('start_rank', '2')}"
             current_display = f"{challenge['current_tier'][0]}{challenge['current_rank']}"
-            
+
             challenge_value = f"```\n"
             challenge_value += f"  {start_display} → {current_display} → P4\n"
             challenge_value += f"  {bar}\n"
             challenge_value += f"              {progress}%\n"
             challenge_value += f"```\n"
             challenge_value += f"**{lp_needed} LP** to go · **{days}j {hours}h** left"
-            
+
             # Emoji urgence
             if days <= 1:
                 urgency = "🚨"
@@ -1515,16 +1515,98 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
                 urgency = "⚠️"
             else:
                 urgency = "◈"
-            
+
             embed.add_field(
                 name=f"▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬",
                 value=f"{urgency} **PLAT CHALLENGE**\n{challenge_value}",
                 inline=False
             )
-    
+
     embed.set_footer(text="◈ OP.GG • Riot Games API")
-    
+
     await interaction.followup.send(embed=embed)
+
+# ═══════════════════════════════════════════════════════════════
+# RATE LIMIT PROTECTION - Exponential Backoff
+# ═══════════════════════════════════════════════════════════════
+
+def run_bot_with_backoff():
+    """
+    Lance le bot avec protection contre les rate limits Discord.
+    Utilise exponential backoff pour éviter les boucles de crash/restart.
+    """
+    import time
+    import os
+    
+    # Fichier pour tracker les restarts
+    restart_file = '/tmp/bot_restart_tracker.txt'
+    max_retries = 5
+    base_delay = 10  # Délai de base en secondes
+    
+    # Vérifier si on est dans une boucle de restart
+    restart_count = 0
+    last_restart_time = 0
+    
+    try:
+        if os.path.exists(restart_file):
+            with open(restart_file, 'r') as f:
+                data = f.read().strip().split(',')
+                if len(data) == 2:
+                    restart_count = int(data[0])
+                    last_restart_time = float(data[1])
+    except:
+        pass
+    
+    current_time = time.time()
+    
+    # Si le dernier restart était il y a plus de 5 minutes, reset le compteur
+    if current_time - last_restart_time > 300:
+        restart_count = 0
+        print("✅ Restart counter reset (5 min since last restart)")
+    else:
+        restart_count += 1
+        print(f"⚠️ Restart detected! Count: {restart_count}/{max_retries}")
+    
+    # Sauvegarder le nouveau compteur
+    try:
+        with open(restart_file, 'w') as f:
+            f.write(f"{restart_count},{current_time}")
+    except:
+        pass
+    
+    # Si trop de restarts, attendre plus longtemps (exponential backoff)
+    if restart_count > 0:
+        # Exponential backoff: 10s, 20s, 40s, 80s, 160s...
+        delay = min(base_delay * (2 ** (restart_count - 1)), 300)  # Max 5 minutes
+        print(f"⏳ Waiting {delay} seconds before connecting (backoff)...")
+        time.sleep(delay)
+    
+    # Si on a dépassé le max de retries, attendre très longtemps
+    if restart_count >= max_retries:
+        print(f"🚨 Too many restarts ({restart_count})! Waiting 10 minutes...")
+        print("   This prevents Discord rate limit bans.")
+        time.sleep(600)  # 10 minutes
+        # Reset le compteur après l'attente
+        try:
+            with open(restart_file, 'w') as f:
+                f.write("0,0")
+        except:
+            pass
+    
+    print("🚀 Starting bot connection...")
+    
+    try:
+        bot.run(DISCORD_TOKEN)
+    except Exception as e:
+        error_str = str(e).lower()
+        if '429' in error_str or 'rate limit' in error_str:
+            print("🚨 RATE LIMITED BY DISCORD!")
+            print("   Waiting 5 minutes before exit...")
+            time.sleep(300)
+        else:
+            print(f"❌ Bot error: {e}")
+        raise
+
 
 # Lancer le bot
 if __name__ == '__main__':
@@ -1532,5 +1614,5 @@ if __name__ == '__main__':
         print("⚠️ ERREUR: DISCORD_TOKEN n'est pas défini dans le .env")
         print("Créez un fichier .env avec vos tokens. Voir .env.example")
     else:
-        bot.run(DISCORD_TOKEN)
+        run_bot_with_backoff()
 
