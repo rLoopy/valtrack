@@ -274,7 +274,7 @@ def trigger_opgg_update(game_name, tag_line, region='euw'):
     """
     if not CLOUDSCRAPER_AVAILABLE:
         return False
-    
+
     try:
         scraper = cloudscraper.create_scraper(
             browser={
@@ -283,33 +283,51 @@ def trigger_opgg_update(game_name, tag_line, region='euw'):
                 'mobile': False
             }
         )
+
+        # Format: ThroatGoat-Glucc (sans URL encoding pour le tiret)
+        formatted_name = f"{game_name}-{tag_line}"
         
-        # Format: ThroatGoat-Glucc
-        formatted_name = f"{game_name}-{tag_line}".replace(' ', '%20')
-        
-        # Endpoint d'update OP.GG (POST request)
-        update_url = f"https://op.gg/api/v1.0/internal/bypass/summoners/{region}/{formatted_name}/renewal"
-        
-        print(f"[OP.GG] Triggering profile update: {update_url}")
-        
+        # Headers comme si on venait du site
         headers = {
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
             'Content-Type': 'application/json',
-            'Accept': 'application/json',
             'Origin': 'https://www.op.gg',
-            'Referer': f'https://www.op.gg/summoners/{region}/{formatted_name}'
+            'Referer': f'https://www.op.gg/summoners/{region}/{formatted_name}',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         }
         
-        response = scraper.post(update_url, headers=headers, timeout=10)
+        # Essayer plusieurs formats d'URL (OP.GG change parfois leur API)
+        urls_to_try = [
+            f"https://www.op.gg/api/v1.0/internal/bypass/summoners/{region}/{formatted_name}/renewal",
+            f"https://www.op.gg/api/v1.0/internal/bypass/summoners/{region}/{formatted_name.replace('-', '%23')}/renewal",
+            f"https://op.gg/api/v1.0/internal/bypass/summoners/{region}/{formatted_name}/renewal",
+        ]
         
-        if response.status_code == 200 or response.status_code == 202:
-            print(f"[OP.GG] Profile update triggered successfully")
-            # Attendre un peu pour que l'update se propage
-            time.sleep(3)
-            return True
-        else:
-            print(f"[OP.GG] Update failed with status: {response.status_code}")
-            return False
+        for update_url in urls_to_try:
+            print(f"[OP.GG] Trying update URL: {update_url}")
             
+            try:
+                response = scraper.post(update_url, headers=headers, timeout=10, json={})
+                print(f"[OP.GG] Response status: {response.status_code}")
+                
+                if response.status_code in [200, 201, 202, 204]:
+                    print(f"[OP.GG] Profile update triggered successfully!")
+                    # Attendre pour que l'update se propage
+                    time.sleep(4)
+                    return True
+                elif response.status_code == 429:
+                    print(f"[OP.GG] Rate limited - update on cooldown")
+                    # Si on est rate limited, les données sont peut-être déjà à jour
+                    return False
+                    
+            except Exception as url_error:
+                print(f"[OP.GG] URL failed: {url_error}")
+                continue
+        
+        print(f"[OP.GG] All update URLs failed")
+        return False
+
     except Exception as e:
         print(f"[OP.GG] Update trigger error: {e}")
         return False
@@ -323,7 +341,7 @@ def scrape_opgg_rank(game_name, tag_line, region='euw', force_update=False):
     if not CLOUDSCRAPER_AVAILABLE:
         print("[OP.GG] cloudscraper not available")
         return None
-    
+
     # Trigger update si demandé
     if force_update:
         trigger_opgg_update(game_name, tag_line, region)
