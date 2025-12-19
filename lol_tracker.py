@@ -267,13 +267,66 @@ def get_ranked_stats_by_puuid(puuid, region='euw1'):
         print(f"Erreur lors de la récupération des stats ranked par PUUID: {e}")
         return None
 
-def scrape_opgg_rank(game_name, tag_line, region='euw'):
+def trigger_opgg_update(game_name, tag_line, region='euw'):
+    """
+    Trigger une mise à jour du profil sur OP.GG pour avoir les données fraîches.
+    Équivalent à cliquer sur le bouton "Update" sur le site.
+    """
+    if not CLOUDSCRAPER_AVAILABLE:
+        return False
+    
+    try:
+        scraper = cloudscraper.create_scraper(
+            browser={
+                'browser': 'chrome',
+                'platform': 'windows',
+                'mobile': False
+            }
+        )
+        
+        # Format: ThroatGoat-Glucc
+        formatted_name = f"{game_name}-{tag_line}".replace(' ', '%20')
+        
+        # Endpoint d'update OP.GG (POST request)
+        update_url = f"https://op.gg/api/v1.0/internal/bypass/summoners/{region}/{formatted_name}/renewal"
+        
+        print(f"[OP.GG] Triggering profile update: {update_url}")
+        
+        headers = {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Origin': 'https://www.op.gg',
+            'Referer': f'https://www.op.gg/summoners/{region}/{formatted_name}'
+        }
+        
+        response = scraper.post(update_url, headers=headers, timeout=10)
+        
+        if response.status_code == 200 or response.status_code == 202:
+            print(f"[OP.GG] Profile update triggered successfully")
+            # Attendre un peu pour que l'update se propage
+            time.sleep(3)
+            return True
+        else:
+            print(f"[OP.GG] Update failed with status: {response.status_code}")
+            return False
+            
+    except Exception as e:
+        print(f"[OP.GG] Update trigger error: {e}")
+        return False
+
+
+def scrape_opgg_rank(game_name, tag_line, region='euw', force_update=False):
     """
     Scrape le rank depuis OP.GG en utilisant cloudscraper pour bypass Cloudflare.
+    Si force_update=True, trigger d'abord une mise à jour du profil.
     """
     if not CLOUDSCRAPER_AVAILABLE:
         print("[OP.GG] cloudscraper not available")
         return None
+    
+    # Trigger update si demandé
+    if force_update:
+        trigger_opgg_update(game_name, tag_line, region)
 
     try:
         # Créer un scraper qui peut bypass Cloudflare
@@ -489,9 +542,10 @@ def get_rank_comprehensive(puuid, game_name, tag_line, region='euw1'):
         return rank_data
 
     # Méthode 2: Scraper OP.GG si l'API Riot n'a pas fonctionné
-    print(f"[Rank] Riot API failed, trying OP.GG scraping...")
+    # force_update=True pour trigger l'actualisation du profil avant de scraper
+    print(f"[Rank] Riot API failed, trying OP.GG scraping (with update)...")
     opgg_region = 'euw' if region == 'euw1' else region.replace('1', '')
-    opgg_data = scrape_opgg_rank(game_name, tag_line, opgg_region)
+    opgg_data = scrape_opgg_rank(game_name, tag_line, opgg_region, force_update=True)
 
     if opgg_data:
         # Convertir le format OP.GG vers le format standard
@@ -1045,13 +1099,13 @@ def create_lol_match_embed(match_info, discord_module, daily_stats=None):
     # STYLE RECON / VALORANT NEON
     # Palette: Deep Purple #7B2FBE, Magenta #E100FF, Cyan #00D4FF
     # ═══════════════════════════════════════════════════════════════
-    
+
     # Couleur principale - Deep Purple (comme les skins Recon)
     result_color = discord_module.Color.from_rgb(123, 47, 190)  # Deep purple #7B2FBE
-    
+
     # URL de l'image du champion (Data Dragon)
     champion_image_url = f"https://ddragon.leagueoflegends.com/cdn/14.24.1/img/champion/{champion}.png"
-    
+
     # ══════════════════════════════════════════════════════════════
     # TITRE - Style épuré
     # ══════════════════════════════════════════════════════════════
@@ -1059,31 +1113,31 @@ def create_lol_match_embed(match_info, discord_module, daily_stats=None):
         title = "▸ VICTORY"
     else:
         title = "▸ DEFEAT"
-    
+
     # ══════════════════════════════════════════════════════════════
     # DESCRIPTION - Style Recon épuré
     # ══════════════════════════════════════════════════════════════
-    
+
     champion_display = champion.upper()
-    
+
     # Header avec champion et KDA
     description = f"# {champion_display}\n"
     description += f"### {kills} / {deaths} / {assists}\n\n"
-    
+
     # Ligne de statut
     if won:
         description += f"**{summoner_name}** ─ ✦ Victory\n"
     else:
         description += f"**{summoner_name}** ─ ✧ Defeat\n"
-    
+
     # Badges compacts
     if badges_text:
         description += f"\n{badges_text}\n"
-    
+
     # Message toxique pour défaites
     if not won and toxic_messages:
         description += f"\n> *{toxic_messages[0]}*"
-    
+
     # Créer l'embed
     embed = discord_module.Embed(
         title=title,
@@ -1091,65 +1145,65 @@ def create_lol_match_embed(match_info, discord_module, daily_stats=None):
         color=result_color,
         timestamp=discord_module.utils.utcnow()
     )
-    
+
     # Thumbnail avec l'image du champion
     embed.set_thumbnail(url=champion_image_url)
-    
+
     # ══════════════════════════════════════════════════════════════
     # STATS - Style minimaliste
     # ══════════════════════════════════════════════════════════════
-    
+
     kda_arrow = "▲" if kda >= 3.0 else ("▼" if kda < 2.0 and not won else "")
-    
+
     stats_value = f"```\n"
     stats_value += f"  KDA ─────── {kda:.2f} {kda_arrow}\n"
     stats_value += f"  CS  ─────── {cs} ({cs_per_min}/m)\n"
     stats_value += f"  KP  ─────── {kill_participation}%\n"
     stats_value += f"```"
-    
+
     embed.add_field(
         name="◈ PERFORMANCE",
         value=stats_value,
         inline=False
     )
-    
+
     # ══════════════════════════════════════════════════════════════
     # RESOURCES - Compact
     # ══════════════════════════════════════════════════════════════
-    
+
     resources_value = f"```\n"
     resources_value += f"  DMG ── {total_damage:,}\n"
     resources_value += f"  GOLD ─ {gold:,}\n"
     resources_value += f"  VIS ── {vision_score}\n"
     resources_value += f"  TIME ─ {format_game_duration(game_duration)}\n"
     resources_value += f"```"
-    
+
     embed.add_field(
         name="◈ STATS",
         value=resources_value,
         inline=True
     )
-    
+
     # ══════════════════════════════════════════════════════════════
     # RANK - Style progress bar neon
     # ══════════════════════════════════════════════════════════════
-    
+
     if ranked_info:
         tier = ranked_info['tier']
         rank = ranked_info['rank']
         lp = ranked_info['lp']
-        
+
         # Barre LP style neon
         filled = int(lp / 10)
         empty = 10 - filled
         lp_bar = "▮" * filled + "▯" * empty
-        
+
         rank_value = f"```\n"
         rank_value += f"  {tier.upper()} {rank}\n"
         rank_value += f"  {lp_bar}\n"
         rank_value += f"  {lp} LP\n"
         rank_value += f"```"
-        
+
         embed.add_field(
             name="◈ RANK",
             value=rank_value,
@@ -1159,7 +1213,7 @@ def create_lol_match_embed(match_info, discord_module, daily_stats=None):
     # ══════════════════════════════════════════════════════════════
     # MULTI-KILLS
     # ══════════════════════════════════════════════════════════════
-    
+
     if penta_kills > 0 or quadra_kills > 0 or triple_kills > 0:
         multikills = []
         if penta_kills > 0:
@@ -1168,28 +1222,28 @@ def create_lol_match_embed(match_info, discord_module, daily_stats=None):
             multikills.append(f"QUADRA ×{quadra_kills}")
         if triple_kills > 0:
             multikills.append(f"TRIPLE ×{triple_kills}")
-        
+
         embed.add_field(
             name="◈ MULTI-KILLS",
             value="```\n  " + "\n  ".join(multikills) + "\n```",
             inline=False
         )
-    
+
     # ══════════════════════════════════════════════════════════════
     # DAILY STATS - Style épuré
     # ══════════════════════════════════════════════════════════════
-    
+
     if daily_stats:
         daily_wins = daily_stats.get('wins', 0)
         daily_losses = daily_stats.get('losses', 0)
         daily_games = daily_wins + daily_losses
         daily_winrate = round((daily_wins / daily_games) * 100) if daily_games > 0 else 0
-        
+
         # Barre progress style Recon
         wr_filled = int(daily_winrate / 10)
         wr_empty = 10 - wr_filled
         wr_bar = "▮" * wr_filled + "▯" * wr_empty
-        
+
         # Status icon
         if daily_winrate >= 60:
             status_icon = "▲"
@@ -1197,24 +1251,24 @@ def create_lol_match_embed(match_info, discord_module, daily_stats=None):
             status_icon = "►"
         else:
             status_icon = "▼"
-        
+
         daily_value = f"```\n"
         daily_value += f"  TODAY\n"
         daily_value += f"  {daily_wins}W · {daily_losses}L\n"
         daily_value += f"  {wr_bar} {daily_winrate}%\n"
         daily_value += f"```"
         daily_value += f"{status_icon} **{'On Fire' if daily_winrate >= 60 else 'Climbing' if daily_winrate >= 50 else 'Tilted'}**"
-        
+
         embed.add_field(
             name="▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬",
             value=daily_value,
             inline=False
         )
-    
+
     # ══════════════════════════════════════════════════════════════
     # FOOTER - Clean
     # ══════════════════════════════════════════════════════════════
-    
+
     if won:
         footer_text = "GG WP"
     else:
@@ -1235,7 +1289,7 @@ def create_lol_match_embed(match_info, discord_module, daily_stats=None):
             ]
         import random
         footer_text = random.choice(toxic_footers)
-    
+
     embed.set_footer(text=f"◈ {footer_text}")
 
     return embed
