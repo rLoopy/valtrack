@@ -1365,36 +1365,33 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
     routing_region = 'europe'
 
     # Récupérer le compte Riot
-    try:
-        account_info = lol_tracker.get_account_by_riot_id(game_name, tag_line, routing_region)
-        if not account_info:
-            await interaction.followup.send(f"❌ Compte Riot **{riot_id}** introuvable.\nVérifiez l'orthographe du nom et du tag.")
-            return
+    account_info = lol_tracker.get_account_by_riot_id(game_name, tag_line, routing_region)
+    if not account_info:
+        await interaction.followup.send(f"❌ Compte Riot **{riot_id}** introuvable.")
+        return
 
-        puuid = account_info.get('puuid')
-        summoner_name = account_info.get('gameName')
-        summoner_tag = account_info.get('tagLine')
-        print(f"[Rank-LoL] PUUID trouvé: {puuid[:8]}..., gameName: {summoner_name}")
+    puuid = account_info.get('puuid')
 
-        # Récupérer les infos du summoner PAR SON NOM (pour obtenir le summoner ID)
-        summoner_info = lol_tracker.get_summoner_by_name(summoner_name, region)
-        if not summoner_info:
-            await interaction.followup.send(f"❌ Impossible de récupérer les informations du summoner sur EUW.\n**Vérifiez:**\n- Votre clé API Riot est valide\n- Le joueur existe sur EUW\n- Le nom du summoner est correct")
-            return
+    # Récupérer les infos du summoner
+    summoner_info = lol_tracker.get_summoner_by_puuid(puuid, region)
+    if not summoner_info:
+        await interaction.followup.send(f"❌ Impossible de récupérer les informations du summoner.")
+        return
 
-        summoner_level = summoner_info.get('summonerLevel', 0)
-        summoner_id = summoner_info.get('id')
+    summoner_name = account_info.get('gameName')
+    summoner_tag = account_info.get('tagLine')
+    summoner_level = summoner_info.get('summonerLevel', 0)
+    
+    print(f"[Rank-LoL] Summoner info KEYS: {list(summoner_info.keys())}")
+    print(f"[Rank-LoL] Summoner info FULL: {summoner_info}")
+    
+    # Essayer de trouver l'ID sous différents noms possibles
+    summoner_id = summoner_info.get('id') or summoner_info.get('accountId') or summoner_info.get('summonerId')
+    
+    print(f"[Rank-LoL] Summoner ID trouvé: {summoner_id}")
 
-        print(f"[Rank-LoL] Summoner ID: {summoner_id}")
-
-        if not summoner_id:
-            await interaction.followup.send(f"❌ Erreur lors de la récupération du summoner ID.\n**Cause probable:** Clé API Riot expirée.\nRégénérez votre clé sur developer.riotgames.com")
-            return
-    except Exception as e:
-        print(f"[Rank-LoL] Exception: {e}")
-        import traceback
-        traceback.print_exc()
-        await interaction.followup.send(f"❌ Erreur technique: {str(e)}\nVérifiez que votre clé API Riot est valide.")
+    if not summoner_id:
+        await interaction.followup.send(f"❌ Le champ 'id' n'existe pas dans la réponse de l'API Riot.\n**Clés disponibles:** {', '.join(summoner_info.keys())}\n\nRégénérez votre clé API sur developer.riotgames.com")
         return
 
     # Récupérer les stats ranked
