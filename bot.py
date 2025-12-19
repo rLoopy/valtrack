@@ -1381,41 +1381,44 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
     summoner_name = account_info.get('gameName')
     summoner_tag = account_info.get('tagLine')
     summoner_level = summoner_info.get('summonerLevel', 0)
-    
-    print(f"[Rank-LoL] Scraping OP.GG pour le rank...")
-    
-    # Utiliser OP.GG pour récupérer le rank (l'API Riot ne retourne plus le summoner ID)
-    ranked_stats = lol_tracker.scrape_opgg_rank(summoner_name, summoner_tag, 'euw')
+
+    print(f"[Rank-LoL] Fetching rank from Riot API...")
+
+    # Utiliser l'API Riot pour récupérer le rank
+    ranked_stats = lol_tracker.get_rank_from_riot_api(puuid, region)
 
     embed = discord.Embed(
-        title=f"🏆 Rang LoL - {summoner_name}#{summoner_tag}",
-        description=f"Niveau {summoner_level} • EUW • Source: OP.GG",
+        title=f"🏆 LoL Rank - {summoner_name}#{summoner_tag}",
+        description=f"Level {summoner_level} • EUW",
         color=discord.Color.blue(),
         timestamp=datetime.now(timezone.utc)
     )
 
     if ranked_stats:
-        # Données scrappées d'OP.GG (format différent de l'API Riot)
-        tier_full = ranked_stats.get('tier_full', 'Unranked')
+        tier = ranked_stats.get('tier', 'Unranked')
+        rank = ranked_stats.get('rank', '')
         lp = ranked_stats.get('lp', 0)
         wins = ranked_stats.get('wins', 0)
         losses = ranked_stats.get('losses', 0)
-        
+
+        tier_emoji = lol_tracker.get_tier_emoji(tier)
+        rank_display = lol_tracker.get_rank_display(tier, rank, lp)
         winrate = round((wins / (wins + losses)) * 100) if (wins + losses) > 0 else 0
-        
+
         embed.add_field(
-            name="🏅 Ranked Solo/Duo",
-            value=f"**{tier_full}** - {lp} LP\n{wins}W - {losses}L ({winrate}%)",
+            name=f"{tier_emoji} Ranked Solo/Duo",
+            value=f"**{rank_display}**\n{wins}W - {losses}L ({winrate}%)",
             inline=False
         )
-        
-        embed.set_footer(text="Données récupérées depuis OP.GG")
+
+        embed.set_footer(text="Data from Riot Games API")
     else:
         embed.add_field(
             name="❌ Ranked",
-            value="Impossible de récupérer les stats depuis OP.GG\nLe joueur est peut-être Unranked",
+            value="Player is Unranked or rank data unavailable\n(Riot API limitation)",
             inline=False
         )
+        embed.set_footer(text="Note: Riot API may not return rank data for some accounts")
 
     await interaction.followup.send(embed=embed)
 

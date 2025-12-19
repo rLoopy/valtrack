@@ -6,8 +6,6 @@ Fonctions et utilitaires pour tracker les matchs LoL
 import requests
 import os
 from datetime import datetime, timezone
-from bs4 import BeautifulSoup
-import re
 
 # Configuration
 RIOT_API_KEY = os.getenv('RIOT_API_KEY')
@@ -230,14 +228,14 @@ def get_ranked_stats_by_puuid(puuid, region='euw1'):
     # L'API Riot ne fournit pas d'endpoint direct /by-puuid/ pour les ranked stats
     # On doit d'abord récupérer le summoner ID via le summoner endpoint
     # Mais comme le summoner endpoint ne retourne plus l'ID, on utilise une approche alternative
-    
+
     # SOLUTION: Utiliser l'endpoint match-v5 qui accepte le PUUID
     # OU chercher le joueur via la liste des challengers/grandmasters/masters
-    
+
     # Pour l'instant, essayons l'endpoint league-v4 avec PUUID directement
     url = f'https://{region}.api.riotgames.com/lol/league/v4/entries/by-puuid/{puuid}'
     headers = {'X-Riot-Token': RIOT_API_KEY}
-    
+
     print(f"[DEBUG] Trying ranked stats by PUUID: {url}")
 
     try:
@@ -259,68 +257,44 @@ def get_ranked_stats_by_puuid(puuid, region='euw1'):
         print(f"Erreur lors de la récupération des stats ranked par PUUID: {e}")
         return None
 
-def scrape_opgg_rank(game_name, tag_line, region='euw'):
-    """Scrape le rank depuis OP.GG (solution alternative à l'API Riot)"""
-    try:
-        # Formater le nom pour l'URL OP.GG
-        formatted_name = f"{game_name}-{tag_line}"
-        url = f"https://www.op.gg/summoners/{region}/{formatted_name}"
-        
-        print(f"[OP.GG] Scraping rank from: {url}")
-        
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        }
-        
-        response = requests.get(url, headers=headers, timeout=10)
-        
-        if response.status_code != 200:
-            print(f"[OP.GG] Erreur HTTP {response.status_code}")
-            return None
-        
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # Chercher les infos de rank dans le HTML
-        # OP.GG structure : <div class="tier"> contient le rank
-        rank_data = {}
-        
-        # Essayer de trouver le tier (ex: "Gold I")
-        tier_element = soup.find('div', class_=re.compile('tier|rank', re.I))
-        if tier_element:
-            tier_text = tier_element.get_text(strip=True)
-            print(f"[OP.GG] Tier trouvé: {tier_text}")
-            rank_data['tier_full'] = tier_text
-        
-        # Chercher LP
-        lp_element = soup.find(string=re.compile(r'\d+\s*LP'))
-        if lp_element:
-            lp_match = re.search(r'(\d+)\s*LP', lp_element)
-            if lp_match:
-                rank_data['lp'] = int(lp_match.group(1))
-                print(f"[OP.GG] LP trouvé: {rank_data['lp']}")
-        
-        # Chercher wins/losses
-        winrate_element = soup.find(string=re.compile(r'\d+W\s+\d+L'))
-        if winrate_element:
-            wins_match = re.search(r'(\d+)W', winrate_element)
-            losses_match = re.search(r'(\d+)L', winrate_element)
-            if wins_match and losses_match:
-                rank_data['wins'] = int(wins_match.group(1))
-                rank_data['losses'] = int(losses_match.group(1))
-                print(f"[OP.GG] W/L trouvé: {rank_data['wins']}W {rank_data['losses']}L")
-        
-        if rank_data:
-            print(f"[OP.GG] Rank data scraped: {rank_data}")
-            return rank_data
-        else:
-            print("[OP.GG] Aucune donnée de rank trouvée")
-            return None
-            
-    except Exception as e:
-        print(f"[OP.GG] Erreur lors du scraping: {e}")
-        import traceback
-        traceback.print_exc()
+def get_rank_from_riot_api(puuid, region='euw1'):
+    """
+    Essaie de récupérer le rank via l'API Riot.
+    Note: L'API Riot a changé et ne retourne plus le summoner ID via /by-puuid/.
+    Cette fonction essaie plusieurs méthodes.
+    """
+    if not RIOT_API_KEY:
         return None
+
+    # Méthode 1: Essayer l'endpoint direct /by-puuid/ pour les ranked stats (peut ne pas exister)
+    try:
+        url = f'https://{region}.api.riotgames.com/lol/league/v4/entries/by-puuid/{puuid}'
+        headers = {'X-Riot-Token': RIOT_API_KEY}
+        response = requests.get(url, headers=headers, timeout=10)
+
+        if response.status_code == 200:
+            data = response.json()
+            # Chercher les stats Solo/Duo
+            for entry in data:
+                if entry.get('queueType') == 'RANKED_SOLO_5x5':
+                    return {
+                        'tier': entry.get('tier', 'Unranked'),
+                        'rank': entry.get('rank', ''),
+                        'lp': entry.get('leaguePoints', 0),
+                        'wins': entry.get('wins', 0),
+                        'losses': entry.get('losses', 0)
+                    }
+            # Si pas de Solo/Duo, retourner None
+            print(f"[Rank] No Solo/Duo stats found for PUUID")
+            return None
+        elif response.status_code == 404:
+            print(f"[Rank] Endpoint /by-puuid/ not available (404)")
+        else:
+            print(f"[Rank] API error: {response.status_code}")
+    except Exception as e:
+        print(f"[Rank] Error fetching rank: {e}")
+
+    return None
 
 def get_recent_matches(puuid, routing_region='europe', count=20):
     """Récupère l'historique des matchs d'un joueur"""
@@ -454,27 +428,17 @@ async def check_lol_player_match(db_connection, puuid, player_info):
                 player_stats = get_player_stats_from_match(match_data, puuid)
 
                 if player_stats:
-                    # Récupérer le summoner info pour avoir le summonerId
-                    summoner_info = get_summoner_by_puuid(puuid, region)
-
-                    # Récupérer le rang actuel
+                    # Essayer de récupérer le rang actuel via l'API Riot
                     ranked_info = None
-                    if summoner_info:
-                        summoner_id = summoner_info.get('id')
-                        if summoner_id:
-                            ranked_stats = get_summoner_ranked_stats(summoner_id, region)
-                            if ranked_stats:
-                                # Trouver les stats Ranked Solo/Duo
-                                for queue in ranked_stats:
-                                    if queue.get('queueType') == 'RANKED_SOLO_5x5':
-                                        ranked_info = {
-                                            'tier': queue.get('tier'),
-                                            'rank': queue.get('rank'),
-                                            'lp': queue.get('leaguePoints'),
-                                            'wins': queue.get('wins'),
-                                            'losses': queue.get('losses')
-                                        }
-                                        break
+                    try:
+                        print(f"[LoL - {summoner_name}] Fetching rank from Riot API...")
+                        ranked_info = get_rank_from_riot_api(puuid, region)
+                        if ranked_info:
+                            print(f"[LoL - {summoner_name}] Rank found: {ranked_info['tier']} {ranked_info['rank']} - {ranked_info['lp']} LP")
+                        else:
+                            print(f"[LoL - {summoner_name}] Rank not available (unranked or API limitation)")
+                    except Exception as e:
+                        print(f"[LoL - {summoner_name}] Error fetching rank: {e}")
 
                     # Mettre à jour le dernier match ID
                     update_last_match_for_lol_player(db_connection, puuid, latest_match_id)
