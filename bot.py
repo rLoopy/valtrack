@@ -1382,49 +1382,38 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
     summoner_tag = account_info.get('tagLine')
     summoner_level = summoner_info.get('summonerLevel', 0)
     
-    print(f"[Rank-LoL] Utilisation du PUUID directement pour les stats ranked")
+    print(f"[Rank-LoL] Scraping OP.GG pour le rank...")
     
-    # Récupérer les stats ranked DIRECTEMENT avec le PUUID (l'API ne retourne plus le summoner ID)
-    ranked_stats = lol_tracker.get_ranked_stats_by_puuid(puuid, region)
+    # Utiliser OP.GG pour récupérer le rank (l'API Riot ne retourne plus le summoner ID)
+    ranked_stats = lol_tracker.scrape_opgg_rank(summoner_name, summoner_tag, 'euw')
 
     embed = discord.Embed(
         title=f"🏆 Rang LoL - {summoner_name}#{summoner_tag}",
-        description=f"Niveau {summoner_level} • EUW",
+        description=f"Niveau {summoner_level} • EUW • Source: OP.GG",
         color=discord.Color.blue(),
         timestamp=datetime.now(timezone.utc)
     )
 
     if ranked_stats:
-        found_ranked = False
-        for queue in ranked_stats:
-            if queue['queueType'] == 'RANKED_SOLO_5x5':
-                tier = queue['tier']
-                rank = queue['rank']
-                lp = queue['leaguePoints']
-                wins = queue['wins']
-                losses = queue['losses']
-
-                tier_emoji = lol_tracker.get_tier_emoji(tier)
-                rank_display = lol_tracker.get_rank_display(tier, rank, lp)
-                winrate = round((wins / (wins + losses)) * 100) if (wins + losses) > 0 else 0
-
-                embed.add_field(
-                    name=f"{tier_emoji} Ranked Solo/Duo",
-                    value=f"**{rank_display}**\n{wins}W - {losses}L ({winrate}%)",
-                    inline=False
-                )
-                found_ranked = True
-
-        if not found_ranked:
-            embed.add_field(
-                name="❌ Ranked Solo/Duo",
-                value="Unranked (No games played this season)",
-                inline=False
-            )
+        # Données scrappées d'OP.GG (format différent de l'API Riot)
+        tier_full = ranked_stats.get('tier_full', 'Unranked')
+        lp = ranked_stats.get('lp', 0)
+        wins = ranked_stats.get('wins', 0)
+        losses = ranked_stats.get('losses', 0)
+        
+        winrate = round((wins / (wins + losses)) * 100) if (wins + losses) > 0 else 0
+        
+        embed.add_field(
+            name="🏅 Ranked Solo/Duo",
+            value=f"**{tier_full}** - {lp} LP\n{wins}W - {losses}L ({winrate}%)",
+            inline=False
+        )
+        
+        embed.set_footer(text="Données récupérées depuis OP.GG")
     else:
         embed.add_field(
             name="❌ Ranked",
-            value="Unranked (No games played this season)",
+            value="Impossible de récupérer les stats depuis OP.GG\nLe joueur est peut-être Unranked",
             inline=False
         )
 
