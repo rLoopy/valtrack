@@ -286,7 +286,7 @@ def trigger_opgg_update(game_name, tag_line, region='euw'):
 
         # Format: ThroatGoat-Glucc (sans URL encoding pour le tiret)
         formatted_name = f"{game_name}-{tag_line}"
-        
+
         # Headers comme si on venait du site
         headers = {
             'Accept': 'application/json, text/plain, */*',
@@ -296,21 +296,21 @@ def trigger_opgg_update(game_name, tag_line, region='euw'):
             'Referer': f'https://www.op.gg/summoners/{region}/{formatted_name}',
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         }
-        
+
         # Essayer plusieurs formats d'URL (OP.GG change parfois leur API)
         urls_to_try = [
             f"https://www.op.gg/api/v1.0/internal/bypass/summoners/{region}/{formatted_name}/renewal",
             f"https://www.op.gg/api/v1.0/internal/bypass/summoners/{region}/{formatted_name.replace('-', '%23')}/renewal",
             f"https://op.gg/api/v1.0/internal/bypass/summoners/{region}/{formatted_name}/renewal",
         ]
-        
+
         for update_url in urls_to_try:
             print(f"[OP.GG] Trying update URL: {update_url}")
-            
+
             try:
                 response = scraper.post(update_url, headers=headers, timeout=10, json={})
                 print(f"[OP.GG] Response status: {response.status_code}")
-                
+
                 if response.status_code in [200, 201, 202, 204]:
                     print(f"[OP.GG] Profile update triggered successfully!")
                     # Attendre pour que l'update se propage
@@ -320,11 +320,11 @@ def trigger_opgg_update(game_name, tag_line, region='euw'):
                     print(f"[OP.GG] Rate limited - update on cooldown")
                     # Si on est rate limited, les données sont peut-être déjà à jour
                     return False
-                    
+
             except Exception as url_error:
                 print(f"[OP.GG] URL failed: {url_error}")
                 continue
-        
+
         print(f"[OP.GG] All update URLs failed")
         return False
 
