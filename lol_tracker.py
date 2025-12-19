@@ -133,19 +133,33 @@ def get_account_by_riot_id(game_name, tag_line, routing_region='europe'):
     regional_endpoint = RIOT_API_BASE.get(routing_region, RIOT_API_BASE['europe'])
     url = f'{regional_endpoint}/riot/account/v1/accounts/by-riot-id/{game_name}/{tag_line}'
     headers = {'X-Riot-Token': RIOT_API_KEY}
+    
+    print(f"[DEBUG] get_account_by_riot_id URL: {url}")
 
     try:
         response = requests.get(url, headers=headers, timeout=10)
+        print(f"[DEBUG] Account API status code: {response.status_code}")
 
         if response.status_code == 429:
             print("⚠️ Rate limit atteint sur l'API Riot")
             return None
         elif response.status_code == 404:
-            print(f"❌ Compte Riot {game_name}#{tag_line} introuvable")
+            print(f"❌ Compte Riot {game_name}#{tag_line} introuvable (404)")
+            print(f"[DEBUG] Response body: {response.text}")
+            return None
+        elif response.status_code == 403:
+            print(f"❌ Accès refusé (403) - Vérifiez votre clé API Riot")
+            print(f"[DEBUG] Response body: {response.text}")
+            return None
+        elif response.status_code != 200:
+            print(f"❌ Erreur API: {response.status_code}")
+            print(f"[DEBUG] Response body: {response.text}")
             return None
 
         response.raise_for_status()
-        return response.json()
+        data = response.json()
+        print(f"[DEBUG] Account data: {data}")
+        return data
     except requests.exceptions.RequestException as e:
         print(f"Erreur lors de la récupération du compte Riot: {e}")
         return None
@@ -214,14 +228,14 @@ def get_ranked_stats_by_puuid(puuid, region='euw1'):
     # L'API Riot ne fournit pas d'endpoint direct /by-puuid/ pour les ranked stats
     # On doit d'abord récupérer le summoner ID via le summoner endpoint
     # Mais comme le summoner endpoint ne retourne plus l'ID, on utilise une approche alternative
-    
+
     # SOLUTION: Utiliser l'endpoint match-v5 qui accepte le PUUID
     # OU chercher le joueur via la liste des challengers/grandmasters/masters
-    
+
     # Pour l'instant, essayons l'endpoint league-v4 avec PUUID directement
     url = f'https://{region}.api.riotgames.com/lol/league/v4/entries/by-puuid/{puuid}'
     headers = {'X-Riot-Token': RIOT_API_KEY}
-    
+
     print(f"[DEBUG] Trying ranked stats by PUUID: {url}")
 
     try:
