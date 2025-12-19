@@ -790,8 +790,12 @@ async def check_lol_matches():
         match_info = await lol_tracker.check_lol_player_match(db_connection, puuid, player_info)
 
         if match_info:
-            # Créer l'embed
-            embed = lol_tracker.create_lol_match_embed(match_info, discord)
+            # Récupérer les stats du jour
+            region = player_info.get('region', 'euw1')
+            daily_stats = lol_tracker.get_daily_stats(puuid, region)
+            
+            # Créer l'embed avec les stats du jour
+            embed = lol_tracker.create_lol_match_embed(match_info, discord, daily_stats)
 
             # Mentionner l'utilisateur si configuré
             mention = f"<@{NOTIFY_USER_ID}>" if NOTIFY_USER_ID else ""
@@ -1425,7 +1429,7 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
     if ranked_stats:
         rank = ranked_stats.get('rank', '')
         lp = ranked_stats.get('lp', 0)
-        
+
         # Rank principal (sans emoji, on utilise l'image)
         description = f"## {tier.title()} {rank} • {lp} LP\n"
     else:
@@ -1456,7 +1460,7 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
         color=embed_color,
         timestamp=datetime.now(timezone.utc)
     )
-    
+
     # Ajouter l'icône du rank
     if tier in rank_emblems:
         embed.set_thumbnail(url=rank_emblems[tier])

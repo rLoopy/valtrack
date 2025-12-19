@@ -929,7 +929,7 @@ async def check_lol_player_match(db_connection, puuid, player_info):
 
     return None
 
-def create_lol_match_embed(match_info, discord_module):
+def create_lol_match_embed(match_info, discord_module, daily_stats=None):
     """Crée l'embed Discord pour une notification de match LoL"""
     match_data = match_info['match_data']
     player_stats = match_info['player_stats']
@@ -1045,52 +1045,52 @@ def create_lol_match_embed(match_info, discord_module):
     result_emoji = '✅' if won else '💀'
     result_color = discord_module.Color.green() if won else discord_module.Color.dark_red()
 
-    # Description différente selon win/loss
+    # URL de l'image du champion (Data Dragon)
+    champion_image_url = f"https://ddragon.leagueoflegends.com/cdn/14.24.1/img/champion/{champion}.png"
+
+    # Description avec stats principales intégrées
     if won:
-        description = f"**{summoner_name}** has **won** (nice)\n{badges_text}"
+        description = f"## {champion} • {kills}/{deaths}/{assists}\n"
+        description += f"**{summoner_name}** has **won** ✨\n"
+        if badges_text:
+            description += f"{badges_text}\n"
     else:
         toxic_text = "\n".join(toxic_messages)
-        description = f"**{summoner_name}** has **lost** (lmao)\n{badges_text}\n\n{toxic_text}"
+        description = f"## {champion} • {kills}/{deaths}/{assists}\n"
+        description += f"**{summoner_name}** has **lost** 💀\n"
+        if badges_text:
+            description += f"{badges_text}\n"
+        description += f"\n{toxic_text}"
 
     # Créer l'embed
-    title = f"{result_emoji} LoL Match Complete!" if won else f"{result_emoji} L BOZO - Match Lost!"
+    title = f"{result_emoji} Match Complete!" if won else f"{result_emoji} L BOZO"
     embed = discord_module.Embed(
         title=title,
         description=description,
         color=result_color,
         timestamp=discord_module.utils.utcnow()
     )
+    
+    # Thumbnail avec l'image du champion
+    embed.set_thumbnail(url=champion_image_url)
 
-    # Champion played
+    # Stats compactes - Ligne 1
+    kda_emoji = "" if won else (" 🤡" if kda < 1.0 else (" 📉" if kda < 2.0 else ""))
+    stats_line1 = f"**KDA** {kda:.2f}{kda_emoji} • **CS** {cs} ({cs_per_min}/min) • **KP** {kill_participation}%"
+    
     embed.add_field(
-        name="🎭 Champion",
-        value=f"{champion} (Level {level})",
-        inline=True
+        name="📊 Performance",
+        value=stats_line1,
+        inline=False
     )
 
-    # KDA avec message toxique si mauvais
-    kda_label = "⚔️ K/D/A"
-    if not won and deaths > kills:
-        kda_label = "💀 K/D/A (yikes)"
-
+    # Stats compactes - Ligne 2
+    stats_line2 = f"**DMG** {total_damage:,} • **Gold** {gold:,} • **Vision** {vision_score}"
+    
     embed.add_field(
-        name=kda_label,
-        value=f"{kills}/{deaths}/{assists}",
-        inline=True
-    )
-
-    # KDA Ratio avec commentaire
-    kda_display = f"{kda:.2f}"
-    if not won:
-        if kda < 1.0:
-            kda_display += " 🤡"
-        elif kda < 2.0:
-            kda_display += " 📉"
-
-    embed.add_field(
-        name="📊 KDA Ratio",
-        value=kda_display,
-        inline=True
+        name="📈 Stats",
+        value=f"{stats_line2}\n**Duration** {format_game_duration(game_duration)}",
+        inline=False
     )
 
     # Rank actuel (si disponible)
@@ -1098,73 +1098,19 @@ def create_lol_match_embed(match_info, discord_module):
         tier = ranked_info['tier']
         rank = ranked_info['rank']
         lp = ranked_info['lp']
-        wins = ranked_info['wins']
-        losses = ranked_info['losses']
-
         tier_emoji = get_tier_emoji(tier)
-        rank_display = get_rank_display(tier, rank, lp)
-        winrate = round((wins / (wins + losses)) * 100) if (wins + losses) > 0 else 0
-
+        
         embed.add_field(
-            name=f"{tier_emoji} Current Rank",
-            value=f"{rank_display}\n{wins}W {losses}L ({winrate}%)",
+            name=f"{tier_emoji} Rank",
+            value=f"**{tier.title()} {rank}** • {lp} LP",
             inline=True
         )
 
-    # CS (Creep Score)
-    embed.add_field(
-        name="🗡️ CS",
-        value=f"{cs} ({cs_per_min}/min)",
-        inline=True
-    )
-
-    # Damage
-    embed.add_field(
-        name="💥 Damage",
-        value=f"{total_damage:,}",
-        inline=True
-    )
-
-    # Kill Participation
-    embed.add_field(
-        name="🎯 KP%",
-        value=f"{kill_participation}%",
-        inline=True
-    )
-
-    # Vision Score
-    embed.add_field(
-        name="👁️ Vision",
-        value=f"{vision_score}",
-        inline=True
-    )
-
-    # Gold
-    embed.add_field(
-        name="💰 Gold",
-        value=f"{gold:,}",
-        inline=True
-    )
-
-    # Game duration
-    embed.add_field(
-        name="⏱️ Duration",
-        value=format_game_duration(game_duration),
-        inline=True
-    )
-
-    # Game mode
-    embed.add_field(
-        name="🎮 Mode",
-        value=game_mode,
-        inline=False
-    )
-
-    # Multi-kills if present
+    # Multi-kills (compact)
     if penta_kills > 0 or quadra_kills > 0 or triple_kills > 0:
         multikills = []
         if penta_kills > 0:
-            multikills.append(f"👑 {penta_kills}x Pentakill")
+            multikills.append(f"👑 {penta_kills}x Penta")
         if quadra_kills > 0:
             multikills.append(f"💥 {quadra_kills}x Quadra")
         if triple_kills > 0:
@@ -1172,31 +1118,50 @@ def create_lol_match_embed(match_info, discord_module):
 
         embed.add_field(
             name="🎊 Multi-kills",
-            value="\n".join(multikills),
+            value=" • ".join(multikills),
+            inline=True
+        )
+
+    # Stats du jour (si disponibles)
+    if daily_stats:
+        daily_wins = daily_stats.get('wins', 0)
+        daily_losses = daily_stats.get('losses', 0)
+        daily_games = daily_wins + daily_losses
+        daily_winrate = round((daily_wins / daily_games) * 100) if daily_games > 0 else 0
+        
+        # Emoji selon performance
+        if daily_winrate >= 60:
+            day_emoji = "🔥"
+        elif daily_winrate >= 50:
+            day_emoji = "📈"
+        else:
+            day_emoji = "📉"
+        
+        embed.add_field(
+            name="─────────────────────────",
+            value=f"**Today** {day_emoji}  •  {daily_wins}W {daily_losses}L ({daily_winrate}%)",
             inline=False
         )
 
     # Footer avec match ID + message toxique
     if won:
-        footer_text = f"Match ID: {match_id[:8]}... | GG WP"
+        footer_text = f"GG WP"
     else:
         if is_jungler:
             toxic_footers = [
-                f"Match ID: {match_id[:8]}... | Jungle diff simply too large",
-                f"Match ID: {match_id[:8]}... | Enemy jungler owns you",
-                f"Match ID: {match_id[:8]}... | Maybe try normals first?",
-                f"Match ID: {match_id[:8]}... | Perma-camped by enemy jungler",
-                f"Match ID: {match_id[:8]}... | Griefing the lanes speedrun",
-                f"Match ID: {match_id[:8]}... | Jungle gap insurmountable"
+                "Jungle diff simply too large",
+                "Enemy jungler owns you",
+                "Maybe try normals first?",
+                "Griefing the lanes speedrun",
+                "Jungle gap insurmountable"
             ]
         else:
             toxic_footers = [
-                f"Match ID: {match_id[:8]}... | Uninstall recommended",
-                f"Match ID: {match_id[:8]}... | Better luck next time (you'll need it)",
-                f"Match ID: {match_id[:8]}... | Elo hell or skill issue?",
-                f"Match ID: {match_id[:8]}... | Certified L moment",
-                f"Match ID: {match_id[:8]}... | Built different (negatively)",
-                f"Match ID: {match_id[:8]}... | Hardstuck speedrun any%"
+                "Uninstall recommended",
+                "Better luck next time (you'll need it)",
+                "Elo hell or skill issue?",
+                "Certified L moment",
+                "Hardstuck speedrun any%"
             ]
         import random
         footer_text = random.choice(toxic_footers)
