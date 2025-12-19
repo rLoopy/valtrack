@@ -1386,7 +1386,7 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
 
     # Utiliser la méthode comprehensive (API Riot + OP.GG fallback)
     ranked_stats = lol_tracker.get_rank_comprehensive(puuid, summoner_name, summoner_tag, region)
-    
+
     # Récupérer les stats du jour
     daily_stats = lol_tracker.get_daily_stats(puuid, region)
 
@@ -1403,16 +1403,16 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
         'GRANDMASTER': 0xDC143C,
         'CHALLENGER': 0xF0E68C
     }
-    
+
     tier = ranked_stats.get('tier', 'GOLD').upper() if ranked_stats else 'GOLD'
     embed_color = tier_colors.get(tier, 0x5865F2)
-    
+
     # Créer la description principale avec le rank bien mis en avant
     if ranked_stats:
         rank = ranked_stats.get('rank', '')
         lp = ranked_stats.get('lp', 0)
         tier_emoji = lol_tracker.get_tier_emoji(tier)
-        
+
         # Grande description avec le rank
         description = f"## {tier_emoji} {tier.title()} {rank}\n"
         description += f"**{lp} LP** • Level {summoner_level}\n"
@@ -1427,60 +1427,30 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
         timestamp=datetime.now(timezone.utc)
     )
 
-    # Stats du jour - format compact
+    # Stats du jour - simple et propre
     if daily_stats and daily_stats['games'] > 0:
         daily_wins = daily_stats['wins']
         daily_losses = daily_stats['losses']
         daily_games = daily_stats['games']
-        
-        # Winrate du jour
         daily_wr = round((daily_wins / daily_games) * 100) if daily_games > 0 else 0
         
-        # Emoji basé sur la performance
+        # Indicateur visuel
         if daily_wins > daily_losses:
-            wr_emoji = "🟢"
+            session_status = f"🟢 **{daily_wins}W - {daily_losses}L** ({daily_wr}% WR)"
         elif daily_losses > daily_wins:
-            wr_emoji = "🔴"
+            session_status = f"🔴 **{daily_wins}W - {daily_losses}L** ({daily_wr}% WR)"
         else:
-            wr_emoji = "🟡"
+            session_status = f"🟡 **{daily_wins}W - {daily_losses}L** ({daily_wr}% WR)"
         
-        embed.add_field(
-            name="📅 Today",
-            value=f"{wr_emoji} **{daily_wins}W {daily_losses}L** ({daily_wr}%)",
-            inline=True
-        )
-        
-        # KDA moyen
-        if 'avg_kills' in daily_stats:
-            kda_ratio = lol_tracker.get_kda_ratio(
-                daily_stats['total_kills'], 
-                daily_stats['total_deaths'], 
-                daily_stats['total_assists']
-            )
-            embed.add_field(
-                name="📊 KDA",
-                value=f"**{kda_ratio}** ({daily_stats['avg_kills']}/{daily_stats['avg_deaths']}/{daily_stats['avg_assists']})",
-                inline=True
-            )
-        
-        # Champions (compact)
-        champions_unique = list(dict.fromkeys(daily_stats['champions']))[:3]
-        if champions_unique:
-            champs_display = " • ".join(champions_unique)
-            embed.add_field(
-                name="🎭 Champions",
-                value=champs_display,
-                inline=True
-            )
+        description += f"\n**Today:** {session_status} • {daily_games} games"
     else:
-        embed.add_field(
-            name="📅 Today",
-            value="No games yet",
-            inline=True
-        )
+        description += f"\n**Today:** No ranked games yet"
+    
+    # Update the embed description
+    embed.description = description
 
     # ═══════════════════════════════════════════
-    # 🎯 PLAT CHALLENGE - Section séparée et stylée
+    # 🎯 PLAT CHALLENGE
     # ═══════════════════════════════════════════
     if ranked_stats:
         challenge = lol_tracker.get_plat_challenge_status(
@@ -1489,47 +1459,46 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
             ranked_stats.get('lp', 0)
         )
         
-        embed.add_field(name="\u200b", value="───────────────────", inline=False)
-        
         if challenge['completed']:
             embed.add_field(
-                name="👑 PLAT CHALLENGE",
-                value="```diff\n+ CHALLENGE COMPLETED! +\n```\n🎉 **GG WP!**",
+                name="",
+                value="## 👑 CHALLENGE COMPLETE!\n*Welcome to Platinum!*",
                 inline=False
             )
         else:
-            # Progress bar plus jolie
+            # Progress bar style moderne
             progress = challenge['progress_percent']
-            filled = int(progress / 5)  # 20 segments
-            empty = 20 - filled
-            bar = "▓" * filled + "░" * empty
+            
+            # Barre avec 10 segments stylés
+            filled = progress // 10
+            empty = 10 - filled
+            
+            # Style: ⬜⬜⬜⬜⬜⬛⬛⬛⬛⬛ ou 🟩🟩🟩🟩⬛⬛⬛⬛⬛⬛
+            bar = "🟨" * filled + "⬛" * empty
             
             # Temps restant
-            time_left = f"{challenge['days_remaining']}j {challenge['hours_remaining']}h"
+            days = challenge['days_remaining']
+            hours = challenge['hours_remaining']
             
-            # Emoji urgence
-            if challenge['days_remaining'] <= 1:
-                urgency = "🚨"
-                time_color = "```diff\n- "
-                time_end = " -\n```"
-            elif challenge['days_remaining'] <= 2:
-                urgency = "⚠️"
-                time_color = "```fix\n"
-                time_end = "\n```"
+            if days <= 1:
+                time_display = f"⏰ **{hours}h** left!"
+                urgency_emoji = "🚨"
             else:
-                urgency = "🎯"
-                time_color = "```\n"
-                time_end = "\n```"
+                time_display = f"⏰ **{days}d {hours}h** left"
+                urgency_emoji = "🎯" if days > 2 else "⚠️"
             
-            challenge_value = f"**Goal:** PLATINUM IV\n"
-            challenge_value += f"`{bar}` **{progress}%**\n\n"
-            challenge_value += f"📍 **{challenge['lp_needed']} LP** to go\n"
-            challenge_value += f"{time_color}⏰ {time_left} remaining{time_end}"
-            challenge_value += f"\n*{challenge['message']}*"
+            # Divisions restantes pour le contexte
+            divs = challenge['divisions_remaining']
+            lp_text = f"{challenge['lp_needed']} LP" if divs == 0 else f"{divs} division{'s' if divs > 1 else ''}"
+            
+            challenge_text = f"{bar}\n"
+            challenge_text += f"**{progress}%** towards Platinum • {lp_text} to go\n"
+            challenge_text += f"{time_display}\n"
+            challenge_text += f"*{challenge['message']}*"
             
             embed.add_field(
-                name=f"{urgency} PLAT CHALLENGE",
-                value=challenge_value,
+                name=f"{urgency_emoji} PLAT CHALLENGE",
+                value=challenge_text,
                 inline=False
             )
 
