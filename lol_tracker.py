@@ -1045,9 +1045,9 @@ def create_lol_match_embed(match_info, discord_module, daily_stats=None):
     # STYLE NEON / CYBERPUNK
     # ═══════════════════════════════════════════════════════════════
     
-    # Couleurs Cyberpunk
+    # Couleur Cyberpunk - Magenta/Purple pour le vibe neon
     if won:
-        result_color = discord_module.Color.from_rgb(0, 255, 159)  # Neon green
+        result_color = discord_module.Color.from_rgb(185, 103, 255)  # Neon purple
     else:
         result_color = discord_module.Color.from_rgb(255, 0, 128)  # Neon pink/magenta
     
@@ -1058,9 +1058,9 @@ def create_lol_match_embed(match_info, discord_module, daily_stats=None):
     # TITRE CYBERPUNK
     # ══════════════════════════════════════════════════════════════
     if won:
-        title = "╭──『 ✦ VICTORY ✦ 』──╮"
+        title = "⟨ ✧ VICTORY ✧ ⟩"
     else:
-        title = "╭──『 ✦ DEFEAT ✦ 』──╮"
+        title = "⟨ ✧ DEFEAT ✧ ⟩"
     
     # ══════════════════════════════════════════════════════════════
     # DESCRIPTION PRINCIPALE - STYLE NEON
@@ -1070,30 +1070,32 @@ def create_lol_match_embed(match_info, discord_module, daily_stats=None):
     champion_display = champion.upper()
     kda_display = f"{kills} ⁄ {deaths} ⁄ {assists}"
     
-    # Résultat stylisé
+    # Résultat stylisé avec emojis neon
     if won:
-        result_text = "░▒▓█ VICTORY █▓▒░"
-        result_line = f"**{summoner_name}** 승리 ✨"
+        result_text = "▰▰▰ ᴠɪᴄᴛᴏʀʏ ▰▰▰"
+        result_line = f"**{summoner_name}** 🌸"
     else:
-        result_text = "░▒▓█ DEFEAT █▓▒░"
-        result_line = f"**{summoner_name}** 패배 💀"
+        result_text = "▰▰▰ ᴅᴇғᴇᴀᴛ ▰▰▰"
+        result_line = f"**{summoner_name}** 💔"
     
     # Construction de la description
-    description = f"```ansi\n"
-    description += f"       ⟦ {champion_display} ⟧\n"
-    description += f"      ▸ {kda_display} ◂\n"
+    description = f"```\n"
+    description += f"    ╔═══════════════════╗\n"
+    description += f"    ║   {champion_display:^15} ║\n"
+    description += f"    ║    {kda_display:^13}   ║\n"
+    description += f"    ╚═══════════════════╝\n"
     description += f"```\n"
     description += f"**{result_text}**\n"
     description += f"{result_line}\n"
-    
+
     # Badges si présents
     if badges_text:
         description += f"\n{badges_text}"
-    
+
     # Messages toxiques pour les défaites
     if not won and toxic_messages:
         description += f"\n\n*{toxic_messages[0]}*"
-    
+
     # Créer l'embed
     embed = discord_module.Embed(
         title=title,
@@ -1101,26 +1103,26 @@ def create_lol_match_embed(match_info, discord_module, daily_stats=None):
         color=result_color,
         timestamp=discord_module.utils.utcnow()
     )
-    
+
     # Thumbnail avec l'image du champion
     embed.set_thumbnail(url=champion_image_url)
-    
+
     # ══════════════════════════════════════════════════════════════
     # STATS BLOCK - STYLE TERMINAL
     # ══════════════════════════════════════════════════════════════
-    
-    kda_indicator = "📈" if kda >= 3.0 else ("📉" if kda < 2.0 and not won else "")
+
+    kda_indicator = "↑" if kda >= 3.0 else ("↓" if kda < 2.0 and not won else " ")
     
     stats_block = f"```\n"
-    stats_block += f"├─────────────────────────┤\n"
-    stats_block += f"│  ⌬ KDA    ║  {kda:.2f}  {kda_indicator}     │\n"
-    stats_block += f"│  ⌬ CS     ║  {cs} ({cs_per_min}/m)  │\n"
-    stats_block += f"│  ⌬ KP     ║  {kill_participation}%         │\n"
-    stats_block += f"├─────────────────────────┤\n"
+    stats_block += f"┌───────────────────┐\n"
+    stats_block += f"│ KDA   {kda:.2f} {kda_indicator}       │\n"
+    stats_block += f"│ CS    {cs} ({cs_per_min}/m)  │\n"
+    stats_block += f"│ KP    {kill_participation}%          │\n"
+    stats_block += f"└───────────────────┘\n"
     stats_block += f"```"
-    
+
     embed.add_field(
-        name="⟨ PERFORMANCE ⟩",
+        name="✦ ᴘᴇʀғᴏʀᴍᴀɴᴄᴇ",
         value=stats_block,
         inline=False
     )
@@ -1130,14 +1132,14 @@ def create_lol_match_embed(match_info, discord_module, daily_stats=None):
     # ══════════════════════════════════════════════════════════════
     
     resources_block = f"```\n"
-    resources_block += f"  ⚔️ {total_damage:,} DMG\n"
-    resources_block += f"  💰 {gold:,} GOLD\n"
-    resources_block += f"  👁️ {vision_score} VISION\n"
-    resources_block += f"  ⏱️ {format_game_duration(game_duration)}\n"
+    resources_block += f" ⚔ {total_damage:,}\n"
+    resources_block += f" ◈ {gold:,}g\n"
+    resources_block += f" ◉ {vision_score} vis\n"
+    resources_block += f" ◷ {format_game_duration(game_duration)}\n"
     resources_block += f"```"
     
     embed.add_field(
-        name="⟨ RESOURCES ⟩",
+        name="✦ ʀᴇsᴏᴜʀᴄᴇs",
         value=resources_block,
         inline=True
     )
@@ -1151,23 +1153,23 @@ def create_lol_match_embed(match_info, discord_module, daily_stats=None):
         rank = ranked_info['rank']
         lp = ranked_info['lp']
         
-        # Progress bar pour LP (sur 100)
+        # Progress bar pour LP (sur 100) - style neon
         filled = int(lp / 10)
         empty = 10 - filled
-        lp_bar = "▰" * filled + "▱" * empty
+        lp_bar = "█" * filled + "░" * empty
         
         rank_block = f"```\n"
-        rank_block += f"  ◤ {tier.upper()} {rank} ◢\n"
-        rank_block += f"  {lp_bar}\n"
-        rank_block += f"       {lp} LP\n"
+        rank_block += f" ◈ {tier.upper()} {rank}\n"
+        rank_block += f" {lp_bar}\n"
+        rank_block += f"      {lp} LP\n"
         rank_block += f"```"
         
         embed.add_field(
-            name="⟨ RANK ⟩",
+            name="✦ ʀᴀɴᴋ",
             value=rank_block,
             inline=True
         )
-    
+
     # ══════════════════════════════════════════════════════════════
     # MULTI-KILLS (si présents)
     # ══════════════════════════════════════════════════════════════
@@ -1175,14 +1177,14 @@ def create_lol_match_embed(match_info, discord_module, daily_stats=None):
     if penta_kills > 0 or quadra_kills > 0 or triple_kills > 0:
         multikills = []
         if penta_kills > 0:
-            multikills.append(f"👑 PENTA ×{penta_kills}")
+            multikills.append(f"♛ PENTA ×{penta_kills}")
         if quadra_kills > 0:
-            multikills.append(f"💥 QUADRA ×{quadra_kills}")
+            multikills.append(f"♕ QUADRA ×{quadra_kills}")
         if triple_kills > 0:
-            multikills.append(f"🔥 TRIPLE ×{triple_kills}")
+            multikills.append(f"♔ TRIPLE ×{triple_kills}")
         
         embed.add_field(
-            name="⟨ MULTI-KILLS ⟩",
+            name="✦ ᴍᴜʟᴛɪ-ᴋɪʟʟs",
             value="```\n" + "\n".join(multikills) + "\n```",
             inline=False
         )
@@ -1197,29 +1199,30 @@ def create_lol_match_embed(match_info, discord_module, daily_stats=None):
         daily_games = daily_wins + daily_losses
         daily_winrate = round((daily_wins / daily_games) * 100) if daily_games > 0 else 0
         
-        # Barre de winrate
+        # Barre de winrate - style neon
         wr_filled = int(daily_winrate / 10)
         wr_empty = 10 - wr_filled
-        wr_bar = "▰" * wr_filled + "▱" * wr_empty
+        wr_bar = "█" * wr_filled + "░" * wr_empty
         
-        # Emoji selon performance
+        # Status selon performance
         if daily_winrate >= 60:
-            day_status = "🔥 ON FIRE"
+            day_status = "⚡ ON FIRE"
         elif daily_winrate >= 50:
-            day_status = "📈 CLIMBING"
+            day_status = "↗ CLIMBING"
         else:
-            day_status = "📉 TILTED"
+            day_status = "↘ TILTED"
         
         daily_block = f"```\n"
-        daily_block += f"╰─────────────────────────╯\n"
-        daily_block += f"   ⌁ TODAY'S SESSION ⌁\n"
-        daily_block += f"     {daily_wins}W {daily_losses}L\n"
-        daily_block += f"     {wr_bar} {daily_winrate}%\n"
+        daily_block += f"┌─────────────────────┐\n"
+        daily_block += f"│   ᴛᴏᴅᴀʏ's sᴇssɪᴏɴ   │\n"
+        daily_block += f"│     {daily_wins}W  ·  {daily_losses}L       │\n"
+        daily_block += f"│  {wr_bar} {daily_winrate}%  │\n"
+        daily_block += f"└─────────────────────┘\n"
         daily_block += f"```"
-        daily_block += f"\n**{day_status}**"
+        daily_block += f"**{day_status}**"
         
         embed.add_field(
-            name="\u200b",  # Invisible separator
+            name="─────────────",
             value=daily_block,
             inline=False
         )
@@ -1229,29 +1232,27 @@ def create_lol_match_embed(match_info, discord_module, daily_stats=None):
     # ══════════════════════════════════════════════════════════════
     
     if won:
-        footer_text = "⌁ GG WP ⌁"
+        footer_text = "✧ ɢɢ ᴡᴘ ✧"
     else:
         if is_jungler:
             toxic_footers = [
-                "⌁ JUNGLE DIFF ⌁",
-                "⌁ OUTJUNGLED ⌁",
-                "⌁ SKILL ISSUE ⌁",
-                "⌁ JUNGLE GAP ⌁",
-                "⌁ TRY NORMALS ⌁"
+                "✧ ᴊᴜɴɢʟᴇ ᴅɪғғ ✧",
+                "✧ ᴏᴜᴛᴊᴜɴɢʟᴇᴅ ✧",
+                "✧ sᴋɪʟʟ ɪssᴜᴇ ✧",
+                "✧ ᴊᴜɴɢʟᴇ ɢᴀᴘ ✧"
             ]
         else:
             toxic_footers = [
-                "⌁ UNINSTALL.EXE ⌁",
-                "⌁ SKILL ISSUE ⌁",
-                "⌁ ELO HELL? ⌁",
-                "⌁ CERTIFIED L ⌁",
-                "⌁ HARDSTUCK ⌁",
-                "⌁ DIFF TOO BIG ⌁"
+                "✧ ᴜɴɪɴsᴛᴀʟʟ.ᴇxᴇ ✧",
+                "✧ sᴋɪʟʟ ɪssᴜᴇ ✧",
+                "✧ ᴇʟᴏ ʜᴇʟʟ? ✧",
+                "✧ ᴄᴇʀᴛɪғɪᴇᴅ ʟ ✧",
+                "✧ ʜᴀʀᴅsᴛᴜᴄᴋ ✧"
             ]
         import random
         footer_text = random.choice(toxic_footers)
     
     embed.set_footer(text=footer_text)
-    
+
     return embed
 
