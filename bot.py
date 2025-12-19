@@ -1433,7 +1433,7 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
         daily_losses = daily_stats['losses']
         daily_games = daily_stats['games']
         daily_wr = round((daily_wins / daily_games) * 100) if daily_games > 0 else 0
-        
+
         # Emoji basé sur la performance
         if daily_wins > daily_losses:
             wr_emoji = "🟢"
@@ -1441,7 +1441,7 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
             wr_emoji = "🔴"
         else:
             wr_emoji = "🟡"
-        
+
         embed.add_field(
             name="📅 Today",
             value=f"{wr_emoji} **{daily_wins}W - {daily_losses}L** ({daily_wr}%)\n{daily_games} games played",
@@ -1463,10 +1463,10 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
             ranked_stats.get('rank', ''),
             ranked_stats.get('lp', 0)
         )
-        
+
         # Séparateur visuel
         embed.add_field(name="\u200b", value="───────────────────", inline=False)
-        
+
         if challenge['completed']:
             embed.add_field(
                 name="👑 PLAT CHALLENGE",
@@ -1477,26 +1477,37 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
             # Emoji urgence
             days = challenge['days_remaining']
             hours = challenge['hours_remaining']
-            
+
             if days <= 1:
                 urgency_emoji = "🚨"
             elif days <= 2:
                 urgency_emoji = "⚠️"
             else:
                 urgency_emoji = "🎯"
-            
+
             # Progress bar style original (plus lisible)
             progress = challenge['progress_percent']
             filled = int(progress / 5)  # 20 segments
             empty = 20 - filled
             bar = "▓" * filled + "░" * empty
             
-            challenge_text = f"**Goal:** PLATINUM IV\n"
-            challenge_text += f"`{bar}` **{progress}%**\n\n"
-            challenge_text += f"📍 **{challenge['lp_needed']} LP** to go\n"
-            challenge_text += f"⏰ **{days}j {hours}h** remaining\n\n"
-            challenge_text += f"*{challenge['message']}*"
+            # Couleur basée sur l'urgence pour le temps
+            if days <= 1:
+                time_box = f"```diff\n- {days}j {hours}h remaining -\n```"
+            elif days <= 2:
+                time_box = f"```fix\n{days}j {hours}h remaining\n```"
+            else:
+                time_box = f"```\n{days}j {hours}h remaining\n```"
             
+            # Box pour les LP
+            lp_box = f"```\n📍 {challenge['lp_needed']} LP to go\n```"
+            
+            challenge_text = f"**Goal:** PLATINUM IV\n"
+            challenge_text += f"`{bar}` **{progress}%**\n"
+            challenge_text += lp_box
+            challenge_text += time_box
+            challenge_text += f"*{challenge['message']}*"
+
             embed.add_field(
                 name=f"{urgency_emoji} PLAT CHALLENGE",
                 value=challenge_text,
