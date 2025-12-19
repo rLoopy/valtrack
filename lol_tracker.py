@@ -273,6 +273,7 @@ def trigger_opgg_update(game_name, tag_line, region='euw'):
     Équivalent à cliquer sur le bouton "Update" sur le site.
     """
     if not CLOUDSCRAPER_AVAILABLE:
+        print("[OP.GG Update] cloudscraper not available")
         return False
 
     try:
@@ -284,52 +285,77 @@ def trigger_opgg_update(game_name, tag_line, region='euw'):
             }
         )
 
-        # Format: ThroatGoat-Glucc (sans URL encoding pour le tiret)
+        # Format différents pour le nom
+        # OP.GG utilise: ThroatGoat-Glucc (tiret entre nom et tag)
         formatted_name = f"{game_name}-{tag_line}"
-
-        # Headers comme si on venait du site
+        formatted_name_encoded = requests.utils.quote(formatted_name, safe='')
+        
+        print(f"[OP.GG Update] Triggering update for: {formatted_name}")
+        
+        # Headers comme le navigateur
         headers = {
             'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Language': 'en-US,en;q=0.9,fr;q=0.8',
             'Content-Type': 'application/json',
             'Origin': 'https://www.op.gg',
-            'Referer': f'https://www.op.gg/summoners/{region}/{formatted_name}',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            'Referer': f'https://www.op.gg/summoners/{region}/{formatted_name_encoded}',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
+            'sec-fetch-dest': 'empty',
+            'sec-fetch-mode': 'cors',
+            'sec-fetch-site': 'same-origin'
         }
-
-        # Essayer plusieurs formats d'URL (OP.GG change parfois leur API)
+        
+        # URLs à essayer (OP.GG a plusieurs formats possibles)
         urls_to_try = [
+            # Format principal
+            f"https://www.op.gg/api/v1.0/internal/bypass/summoners/{region}/{formatted_name_encoded}/renewal",
+            # Sans encoding
             f"https://www.op.gg/api/v1.0/internal/bypass/summoners/{region}/{formatted_name}/renewal",
-            f"https://www.op.gg/api/v1.0/internal/bypass/summoners/{region}/{formatted_name.replace('-', '%23')}/renewal",
-            f"https://op.gg/api/v1.0/internal/bypass/summoners/{region}/{formatted_name}/renewal",
+            # Avec région en majuscule
+            f"https://www.op.gg/api/v1.0/internal/bypass/summoners/{region.upper()}/{formatted_name_encoded}/renewal",
         ]
-
+        
         for update_url in urls_to_try:
-            print(f"[OP.GG] Trying update URL: {update_url}")
-
+            print(f"[OP.GG Update] Trying: {update_url}")
+            
             try:
-                response = scraper.post(update_url, headers=headers, timeout=10, json={})
-                print(f"[OP.GG] Response status: {response.status_code}")
-
+                # POST avec body vide
+                response = scraper.post(update_url, headers=headers, timeout=15, json={})
+                print(f"[OP.GG Update] Status: {response.status_code}")
+                
+                # Log la réponse pour debug
+                try:
+                    resp_text = response.text[:200] if response.text else "empty"
+                    print(f"[OP.GG Update] Response: {resp_text}")
+                except:
+                    pass
+                
                 if response.status_code in [200, 201, 202, 204]:
-                    print(f"[OP.GG] Profile update triggered successfully!")
-                    # Attendre pour que l'update se propage
-                    time.sleep(4)
+                    print(f"[OP.GG Update] ✅ SUCCESS! Waiting for propagation...")
+                    time.sleep(5)  # Attendre que l'update se propage
                     return True
                 elif response.status_code == 429:
-                    print(f"[OP.GG] Rate limited - update on cooldown")
-                    # Si on est rate limited, les données sont peut-être déjà à jour
+                    print(f"[OP.GG Update] ⏳ Rate limited (update on cooldown)")
                     return False
-
+                elif response.status_code == 418:
+                    print(f"[OP.GG Update] ☕ I'm a teapot (blocked)")
+                    continue
+                elif response.status_code >= 500:
+                    print(f"[OP.GG Update] Server error, trying next URL...")
+                    continue
+                    
             except Exception as url_error:
-                print(f"[OP.GG] URL failed: {url_error}")
+                print(f"[OP.GG Update] Request failed: {url_error}")
                 continue
-
-        print(f"[OP.GG] All update URLs failed")
+        
+        print(f"[OP.GG Update] ❌ All update attempts failed")
         return False
 
     except Exception as e:
-        print(f"[OP.GG] Update trigger error: {e}")
+        print(f"[OP.GG Update] Error: {e}")
         return False
 
 
@@ -504,42 +530,63 @@ def scrape_opgg_rank(game_name, tag_line, region='euw', force_update=False):
 def get_rank_from_riot_api(puuid, region='euw1'):
     """
     Essaie de récupérer le rank via l'API Riot.
-    Méthode 1: Direct /by-summoner/ si on a le summoner ID
+    Utilise l'endpoint league-v4 avec le summoner ID.
     """
     if not RIOT_API_KEY:
         return None
 
     # D'abord récupérer les infos du summoner pour avoir le summoner ID
     summoner_info = get_summoner_by_puuid(puuid, region)
+    
+    if not summoner_info:
+        print("[Rank] Could not get summoner info")
+        return None
+    
+    # L'API Riot retourne maintenant 'id' dans la réponse summoner
+    summoner_id = summoner_info.get('id')
+    
+    if not summoner_id:
+        # Fallback: essayer d'utiliser le PUUID directement avec un autre endpoint
+        print("[Rank] No summoner ID in response, trying alternative...")
+        print(f"[Rank] Available keys: {list(summoner_info.keys())}")
+        
+        # Certaines régions/comptes retournent l'ID différemment
+        # Essayons de récupérer via l'endpoint account
+        return None
+    
+    print(f"[Rank] Got summoner ID: {summoner_id[:15]}...")
 
-    if summoner_info and 'id' in summoner_info:
-        summoner_id = summoner_info['id']
-        print(f"[Rank] Got summoner ID: {summoner_id[:10]}...")
+    # Utiliser l'endpoint /by-summoner/
+    try:
+        url = f'https://{region}.api.riotgames.com/lol/league/v4/entries/by-summoner/{summoner_id}'
+        headers = {'X-Riot-Token': RIOT_API_KEY}
+        
+        print(f"[Rank] Fetching from: {url}")
+        response = requests.get(url, headers=headers, timeout=10)
 
-        # Utiliser l'endpoint /by-summoner/
-        try:
-            url = f'https://{region}.api.riotgames.com/lol/league/v4/entries/by-summoner/{summoner_id}'
-            headers = {'X-Riot-Token': RIOT_API_KEY}
-            response = requests.get(url, headers=headers, timeout=10)
-
-            if response.status_code == 200:
-                data = response.json()
-                for entry in data:
-                    if entry.get('queueType') == 'RANKED_SOLO_5x5':
-                        return {
-                            'tier': entry.get('tier', 'Unranked'),
-                            'rank': entry.get('rank', ''),
-                            'lp': entry.get('leaguePoints', 0),
-                            'wins': entry.get('wins', 0),
-                            'losses': entry.get('losses', 0)
-                        }
-                print("[Rank] No Solo/Duo stats found")
-            else:
-                print(f"[Rank] API error: {response.status_code}")
-        except Exception as e:
-            print(f"[Rank] Error: {e}")
-    else:
-        print("[Rank] No summoner ID available from Riot API")
+        if response.status_code == 200:
+            data = response.json()
+            print(f"[Rank] Got {len(data)} queue entries")
+            
+            for entry in data:
+                if entry.get('queueType') == 'RANKED_SOLO_5x5':
+                    result = {
+                        'tier': entry.get('tier', 'Unranked'),
+                        'rank': entry.get('rank', ''),
+                        'lp': entry.get('leaguePoints', 0),
+                        'wins': entry.get('wins', 0),
+                        'losses': entry.get('losses', 0)
+                    }
+                    print(f"[Rank] SUCCESS from Riot API: {result['tier']} {result['rank']} {result['lp']}LP")
+                    return result
+                    
+            print("[Rank] No Solo/Duo queue found in entries")
+        elif response.status_code == 404:
+            print("[Rank] Player not found or unranked")
+        else:
+            print(f"[Rank] API error: {response.status_code} - {response.text[:100]}")
+    except Exception as e:
+        print(f"[Rank] Error: {e}")
 
     return None
 

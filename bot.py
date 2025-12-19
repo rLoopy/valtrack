@@ -1537,16 +1537,16 @@ def run_bot_with_backoff():
     """
     import time
     import os
-    
+
     # Fichier pour tracker les restarts
     restart_file = '/tmp/bot_restart_tracker.txt'
     max_retries = 5
     base_delay = 10  # Délai de base en secondes
-    
+
     # Vérifier si on est dans une boucle de restart
     restart_count = 0
     last_restart_time = 0
-    
+
     try:
         if os.path.exists(restart_file):
             with open(restart_file, 'r') as f:
@@ -1556,9 +1556,9 @@ def run_bot_with_backoff():
                     last_restart_time = float(data[1])
     except:
         pass
-    
+
     current_time = time.time()
-    
+
     # Si le dernier restart était il y a plus de 5 minutes, reset le compteur
     if current_time - last_restart_time > 300:
         restart_count = 0
@@ -1566,21 +1566,21 @@ def run_bot_with_backoff():
     else:
         restart_count += 1
         print(f"⚠️ Restart detected! Count: {restart_count}/{max_retries}")
-    
+
     # Sauvegarder le nouveau compteur
     try:
         with open(restart_file, 'w') as f:
             f.write(f"{restart_count},{current_time}")
     except:
         pass
-    
+
     # Si trop de restarts, attendre plus longtemps (exponential backoff)
     if restart_count > 0:
         # Exponential backoff: 10s, 20s, 40s, 80s, 160s...
         delay = min(base_delay * (2 ** (restart_count - 1)), 300)  # Max 5 minutes
         print(f"⏳ Waiting {delay} seconds before connecting (backoff)...")
         time.sleep(delay)
-    
+
     # Si on a dépassé le max de retries, attendre très longtemps
     if restart_count >= max_retries:
         print(f"🚨 Too many restarts ({restart_count})! Waiting 10 minutes...")
@@ -1592,9 +1592,9 @@ def run_bot_with_backoff():
                 f.write("0,0")
         except:
             pass
-    
+
     print("🚀 Starting bot connection...")
-    
+
     try:
         bot.run(DISCORD_TOKEN)
     except Exception as e:
