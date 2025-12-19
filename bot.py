@@ -1416,12 +1416,12 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
 
     # Récupérer les stats du jour (depuis minuit)
     daily_stats = lol_tracker.get_daily_stats(puuid, region)
-    
+
     if daily_stats and daily_stats['games'] > 0:
         daily_wins = daily_stats['wins']
         daily_losses = daily_stats['losses']
         daily_games = daily_stats['games']
-        
+
         # Emoji basé sur la performance
         if daily_wins > daily_losses:
             daily_emoji = "📈"
@@ -1429,18 +1429,18 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
             daily_emoji = "📉"
         else:
             daily_emoji = "➖"
-        
+
         # Champions joués (max 3)
         champions_played = daily_stats['champions'][:3]
         champs_text = ", ".join(champions_played) if champions_played else "N/A"
         if len(daily_stats['champions']) > 3:
             champs_text += f" +{len(daily_stats['champions']) - 3}"
-        
+
         # KDA moyen
         avg_kda = ""
         if 'avg_kills' in daily_stats:
             avg_kda = f"\nAvg KDA: {daily_stats['avg_kills']}/{daily_stats['avg_deaths']}/{daily_stats['avg_assists']}"
-        
+
         embed.add_field(
             name=f"{daily_emoji} Today",
             value=f"**{daily_wins}W - {daily_losses}L** ({daily_games} games){avg_kda}\nChampions: {champs_text}",
@@ -1450,6 +1450,39 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
         embed.add_field(
             name="📊 Today",
             value="No ranked games played today",
+            inline=False
+        )
+
+    # 🏆 PLAT CHALLENGE TRACKER (pour ThroatGoat)
+    if ranked_stats:
+        tier = ranked_stats.get('tier', '')
+        rank = ranked_stats.get('rank', '')
+        lp = ranked_stats.get('lp', 0)
+        
+        challenge = lol_tracker.get_plat_challenge_status(tier, rank, lp)
+        
+        if challenge['completed']:
+            challenge_text = f"🎉 **CHALLENGE COMPLETED!**\n"
+            challenge_text += f"✅ {challenge['current_tier']} {challenge['current_rank']} achieved!"
+            challenge_emoji = "👑"
+        else:
+            challenge_text = f"**{challenge['current_tier']} {challenge['current_rank']}** → **PLATINUM**\n"
+            challenge_text += f"`{challenge['progress_bar']}` {challenge['progress_percent']}%\n"
+            challenge_text += f"📊 {challenge['lp_needed']} LP needed ({challenge['divisions_remaining']} divisions)\n"
+            challenge_text += f"⏰ **{challenge['days_remaining']}d {challenge['hours_remaining']}h** remaining\n"
+            challenge_text += f"\n{challenge['message']}"
+            
+            # Emoji basé sur le temps restant
+            if challenge['days_remaining'] <= 1:
+                challenge_emoji = "🚨"
+            elif challenge['days_remaining'] <= 2:
+                challenge_emoji = "⚠️"
+            else:
+                challenge_emoji = "🎯"
+        
+        embed.add_field(
+            name=f"{challenge_emoji} PLAT CHALLENGE (Deadline: Monday)",
+            value=challenge_text,
             inline=False
         )
 
