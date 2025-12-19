@@ -1407,27 +1407,18 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
     tier = ranked_stats.get('tier', 'GOLD').upper() if ranked_stats else 'GOLD'
     embed_color = tier_colors.get(tier, 0x5865F2)
 
-    # Créer la description principale avec le rank bien mis en avant
+    # Construire la description compacte et propre
     if ranked_stats:
         rank = ranked_stats.get('rank', '')
         lp = ranked_stats.get('lp', 0)
         tier_emoji = lol_tracker.get_tier_emoji(tier)
-
-        # Grande description avec le rank
-        description = f"## {tier_emoji} {tier.title()} {rank}\n"
-        description += f"**{lp} LP** • Level {summoner_level}\n"
+        
+        # Rank principal
+        description = f"## {tier_emoji} {tier.title()} {rank} • {lp} LP\n"
     else:
         description = f"## ❌ Unranked\n"
-        description += f"Level {summoner_level}\n"
 
-    embed = discord.Embed(
-        title=f"{summoner_name}#{summoner_tag}",
-        description=description,
-        color=embed_color,
-        timestamp=datetime.now(timezone.utc)
-    )
-
-    # Stats du jour - field séparé et aéré
+    # Ajouter la session du jour directement dans la description
     if daily_stats and daily_stats['games'] > 0:
         daily_wins = daily_stats['wins']
         daily_losses = daily_stats['losses']
@@ -1442,17 +1433,16 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
         else:
             wr_emoji = "🟡"
 
-        embed.add_field(
-            name="📅 Today",
-            value=f"{wr_emoji} **{daily_wins}W - {daily_losses}L** ({daily_wr}%)\n{daily_games} games played",
-            inline=False
-        )
+        description += f"\n**Today** {wr_emoji} {daily_wins}W - {daily_losses}L ({daily_wr}%) • {daily_games} games"
     else:
-        embed.add_field(
-            name="📅 Today",
-            value="No ranked games yet",
-            inline=False
-        )
+        description += f"\n**Today** — No ranked games yet"
+
+    embed = discord.Embed(
+        title=f"{summoner_name}#{summoner_tag}",
+        description=description,
+        color=embed_color,
+        timestamp=datetime.now(timezone.utc)
+    )
 
     # ═══════════════════════════════════════════
     # 🎯 PLAT CHALLENGE - Style aéré
@@ -1490,11 +1480,11 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
             filled = int(progress / 5)  # 20 segments
             empty = 20 - filled
             bar = "▓" * filled + "░" * empty
-            
+
             # Affichage du parcours: Start → Current → Goal
             start_display = f"{challenge.get('start_tier', 'S').title()} {challenge.get('start_rank', '2')}"
             current_display = f"{challenge['current_tier'].title()} {challenge['current_rank']}"
-            
+
             # Couleur basée sur l'urgence pour le temps
             if days <= 1:
                 time_box = f"```diff\n- {days}j {hours}h remaining -\n```"
@@ -1502,10 +1492,10 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
                 time_box = f"```fix\n{days}j {hours}h remaining\n```"
             else:
                 time_box = f"```\n{days}j {hours}h remaining\n```"
-            
+
             # Box pour les LP
             lp_box = f"```\n📍 {challenge['lp_needed']} LP to go\n```"
-            
+
             challenge_text = f"**{start_display}** → **{current_display}** → **Plat 4**\n"
             challenge_text += f"`{bar}` **{progress}%**\n"
             challenge_text += lp_box
