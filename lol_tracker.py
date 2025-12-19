@@ -158,8 +158,6 @@ def get_summoner_by_puuid(puuid, region='euw1'):
 
     url = f'https://{region}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/{puuid}'
     headers = {'X-Riot-Token': RIOT_API_KEY}
-    
-    print(f"[DEBUG] get_summoner_by_puuid URL: {url}")
 
     try:
         response = requests.get(url, headers=headers, timeout=10)
@@ -169,7 +167,7 @@ def get_summoner_by_puuid(puuid, region='euw1'):
             print("⚠️ Rate limit atteint sur l'API Riot")
             return None
         elif response.status_code == 404:
-            print(f"❌ Invocateur introuvable (404)")
+            print(f"❌ Invocateur introuvable")
             return None
         elif response.status_code != 200:
             print(f"❌ Erreur API: {response.status_code} - {response.text}")
@@ -177,46 +175,13 @@ def get_summoner_by_puuid(puuid, region='euw1'):
 
         response.raise_for_status()
         data = response.json()
-        print(f"[DEBUG] Summoner data: {data}")
+        print(f"[DEBUG] Summoner data FULL: {data}")
+        print(f"[DEBUG] Summoner data KEYS: {list(data.keys())}")
+        print(f"[DEBUG] Checking for 'id': {'id' in data}")
+        print(f"[DEBUG] Checking for 'accountId': {'accountId' in data}")
         return data
     except requests.exceptions.RequestException as e:
         print(f"Erreur lors de la récupération de l'invocateur: {e}")
-        return None
-
-def get_summoner_by_name(summoner_name, region='euw1'):
-    """Récupère les informations d'un invocateur LoL par son nom (pour obtenir le summoner ID)"""
-    if not RIOT_API_KEY:
-        print("⚠️ RIOT_API_KEY non configurée")
-        return None
-
-    # Encoder le nom pour l'URL
-    import urllib.parse
-    encoded_name = urllib.parse.quote(summoner_name)
-    url = f'https://{region}.api.riotgames.com/lol/summoner/v4/summoners/by-name/{encoded_name}'
-    headers = {'X-Riot-Token': RIOT_API_KEY}
-    
-    print(f"[DEBUG] get_summoner_by_name URL: {url}")
-
-    try:
-        response = requests.get(url, headers=headers, timeout=10)
-        print(f"[DEBUG] Status code: {response.status_code}")
-
-        if response.status_code == 429:
-            print("⚠️ Rate limit atteint sur l'API Riot")
-            return None
-        elif response.status_code == 404:
-            print(f"❌ Summoner name introuvable (404)")
-            return None
-        elif response.status_code != 200:
-            print(f"❌ Erreur API: {response.status_code} - {response.text}")
-            return None
-
-        response.raise_for_status()
-        data = response.json()
-        print(f"[DEBUG] Summoner data (by name): {data}")
-        return data
-    except requests.exceptions.RequestException as e:
-        print(f"Erreur lors de la récupération de l'invocateur par nom: {e}")
         return None
 
 def get_summoner_ranked_stats(summoner_id, region='euw1'):
