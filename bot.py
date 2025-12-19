@@ -793,7 +793,7 @@ async def check_lol_matches():
             # Récupérer les stats du jour
             region = player_info.get('region', 'euw1')
             daily_stats = lol_tracker.get_daily_stats(puuid, region)
-            
+
             # Créer l'embed avec les stats du jour
             embed = lol_tracker.create_lol_match_embed(match_info, discord, daily_stats)
 

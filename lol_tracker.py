@@ -1041,29 +1041,60 @@ def create_lol_match_embed(match_info, discord_module, daily_stats=None):
             import random
             toxic_messages.append(random.choice(default_toxic))
 
-    # Color based on win/loss
-    result_emoji = '✅' if won else '💀'
-    result_color = discord_module.Color.green() if won else discord_module.Color.dark_red()
-
+    # ═══════════════════════════════════════════════════════════════
+    # STYLE NEON / CYBERPUNK
+    # ═══════════════════════════════════════════════════════════════
+    
+    # Couleurs Cyberpunk
+    if won:
+        result_color = discord_module.Color.from_rgb(0, 255, 159)  # Neon green
+    else:
+        result_color = discord_module.Color.from_rgb(255, 0, 128)  # Neon pink/magenta
+    
     # URL de l'image du champion (Data Dragon)
     champion_image_url = f"https://ddragon.leagueoflegends.com/cdn/14.24.1/img/champion/{champion}.png"
-
-    # Description avec stats principales intégrées
+    
+    # ══════════════════════════════════════════════════════════════
+    # TITRE CYBERPUNK
+    # ══════════════════════════════════════════════════════════════
     if won:
-        description = f"## {champion} • {kills}/{deaths}/{assists}\n"
-        description += f"**{summoner_name}** has **won** ✨\n"
-        if badges_text:
-            description += f"{badges_text}\n"
+        title = "╭──『 ✦ VICTORY ✦ 』──╮"
     else:
-        toxic_text = "\n".join(toxic_messages)
-        description = f"## {champion} • {kills}/{deaths}/{assists}\n"
-        description += f"**{summoner_name}** has **lost** 💀\n"
-        if badges_text:
-            description += f"{badges_text}\n"
-        description += f"\n{toxic_text}"
-
+        title = "╭──『 ✦ DEFEAT ✦ 』──╮"
+    
+    # ══════════════════════════════════════════════════════════════
+    # DESCRIPTION PRINCIPALE - STYLE NEON
+    # ══════════════════════════════════════════════════════════════
+    
+    # Champion name stylisé
+    champion_display = champion.upper()
+    kda_display = f"{kills} ⁄ {deaths} ⁄ {assists}"
+    
+    # Résultat stylisé
+    if won:
+        result_text = "░▒▓█ VICTORY █▓▒░"
+        result_line = f"**{summoner_name}** 승리 ✨"
+    else:
+        result_text = "░▒▓█ DEFEAT █▓▒░"
+        result_line = f"**{summoner_name}** 패배 💀"
+    
+    # Construction de la description
+    description = f"```ansi\n"
+    description += f"       ⟦ {champion_display} ⟧\n"
+    description += f"      ▸ {kda_display} ◂\n"
+    description += f"```\n"
+    description += f"**{result_text}**\n"
+    description += f"{result_line}\n"
+    
+    # Badges si présents
+    if badges_text:
+        description += f"\n{badges_text}"
+    
+    # Messages toxiques pour les défaites
+    if not won and toxic_messages:
+        description += f"\n\n*{toxic_messages[0]}*"
+    
     # Créer l'embed
-    title = f"{result_emoji} Match Complete!" if won else f"{result_emoji} L BOZO"
     embed = discord_module.Embed(
         title=title,
         description=description,
@@ -1073,100 +1104,154 @@ def create_lol_match_embed(match_info, discord_module, daily_stats=None):
     
     # Thumbnail avec l'image du champion
     embed.set_thumbnail(url=champion_image_url)
-
-    # Stats compactes - Ligne 1
-    kda_emoji = "" if won else (" 🤡" if kda < 1.0 else (" 📉" if kda < 2.0 else ""))
-    stats_line1 = f"**KDA** {kda:.2f}{kda_emoji} • **CS** {cs} ({cs_per_min}/min) • **KP** {kill_participation}%"
+    
+    # ══════════════════════════════════════════════════════════════
+    # STATS BLOCK - STYLE TERMINAL
+    # ══════════════════════════════════════════════════════════════
+    
+    kda_indicator = "📈" if kda >= 3.0 else ("📉" if kda < 2.0 and not won else "")
+    
+    stats_block = f"```\n"
+    stats_block += f"├─────────────────────────┤\n"
+    stats_block += f"│  ⌬ KDA    ║  {kda:.2f}  {kda_indicator}     │\n"
+    stats_block += f"│  ⌬ CS     ║  {cs} ({cs_per_min}/m)  │\n"
+    stats_block += f"│  ⌬ KP     ║  {kill_participation}%         │\n"
+    stats_block += f"├─────────────────────────┤\n"
+    stats_block += f"```"
     
     embed.add_field(
-        name="📊 Performance",
-        value=stats_line1,
+        name="⟨ PERFORMANCE ⟩",
+        value=stats_block,
         inline=False
     )
-
-    # Stats compactes - Ligne 2
-    stats_line2 = f"**DMG** {total_damage:,} • **Gold** {gold:,} • **Vision** {vision_score}"
+    
+    # ══════════════════════════════════════════════════════════════
+    # RESOURCES BLOCK
+    # ══════════════════════════════════════════════════════════════
+    
+    resources_block = f"```\n"
+    resources_block += f"  ⚔️ {total_damage:,} DMG\n"
+    resources_block += f"  💰 {gold:,} GOLD\n"
+    resources_block += f"  👁️ {vision_score} VISION\n"
+    resources_block += f"  ⏱️ {format_game_duration(game_duration)}\n"
+    resources_block += f"```"
     
     embed.add_field(
-        name="📈 Stats",
-        value=f"{stats_line2}\n**Duration** {format_game_duration(game_duration)}",
-        inline=False
+        name="⟨ RESOURCES ⟩",
+        value=resources_block,
+        inline=True
     )
-
-    # Rank actuel (si disponible)
+    
+    # ══════════════════════════════════════════════════════════════
+    # RANK BLOCK
+    # ══════════════════════════════════════════════════════════════
+    
     if ranked_info:
         tier = ranked_info['tier']
         rank = ranked_info['rank']
         lp = ranked_info['lp']
-        tier_emoji = get_tier_emoji(tier)
+        
+        # Progress bar pour LP (sur 100)
+        filled = int(lp / 10)
+        empty = 10 - filled
+        lp_bar = "▰" * filled + "▱" * empty
+        
+        rank_block = f"```\n"
+        rank_block += f"  ◤ {tier.upper()} {rank} ◢\n"
+        rank_block += f"  {lp_bar}\n"
+        rank_block += f"       {lp} LP\n"
+        rank_block += f"```"
         
         embed.add_field(
-            name=f"{tier_emoji} Rank",
-            value=f"**{tier.title()} {rank}** • {lp} LP",
+            name="⟨ RANK ⟩",
+            value=rank_block,
             inline=True
         )
-
-    # Multi-kills (compact)
+    
+    # ══════════════════════════════════════════════════════════════
+    # MULTI-KILLS (si présents)
+    # ══════════════════════════════════════════════════════════════
+    
     if penta_kills > 0 or quadra_kills > 0 or triple_kills > 0:
         multikills = []
         if penta_kills > 0:
-            multikills.append(f"👑 {penta_kills}x Penta")
+            multikills.append(f"👑 PENTA ×{penta_kills}")
         if quadra_kills > 0:
-            multikills.append(f"💥 {quadra_kills}x Quadra")
+            multikills.append(f"💥 QUADRA ×{quadra_kills}")
         if triple_kills > 0:
-            multikills.append(f"🔥 {triple_kills}x Triple")
-
+            multikills.append(f"🔥 TRIPLE ×{triple_kills}")
+        
         embed.add_field(
-            name="🎊 Multi-kills",
-            value=" • ".join(multikills),
-            inline=True
+            name="⟨ MULTI-KILLS ⟩",
+            value="```\n" + "\n".join(multikills) + "\n```",
+            inline=False
         )
-
-    # Stats du jour (si disponibles)
+    
+    # ══════════════════════════════════════════════════════════════
+    # DAILY STATS
+    # ══════════════════════════════════════════════════════════════
+    
     if daily_stats:
         daily_wins = daily_stats.get('wins', 0)
         daily_losses = daily_stats.get('losses', 0)
         daily_games = daily_wins + daily_losses
         daily_winrate = round((daily_wins / daily_games) * 100) if daily_games > 0 else 0
         
+        # Barre de winrate
+        wr_filled = int(daily_winrate / 10)
+        wr_empty = 10 - wr_filled
+        wr_bar = "▰" * wr_filled + "▱" * wr_empty
+        
         # Emoji selon performance
         if daily_winrate >= 60:
-            day_emoji = "🔥"
+            day_status = "🔥 ON FIRE"
         elif daily_winrate >= 50:
-            day_emoji = "📈"
+            day_status = "📈 CLIMBING"
         else:
-            day_emoji = "📉"
+            day_status = "📉 TILTED"
+        
+        daily_block = f"```\n"
+        daily_block += f"╰─────────────────────────╯\n"
+        daily_block += f"   ⌁ TODAY'S SESSION ⌁\n"
+        daily_block += f"     {daily_wins}W {daily_losses}L\n"
+        daily_block += f"     {wr_bar} {daily_winrate}%\n"
+        daily_block += f"```"
+        daily_block += f"\n**{day_status}**"
         
         embed.add_field(
-            name="─────────────────────────",
-            value=f"**Today** {day_emoji}  •  {daily_wins}W {daily_losses}L ({daily_winrate}%)",
+            name="\u200b",  # Invisible separator
+            value=daily_block,
             inline=False
         )
-
-    # Footer avec match ID + message toxique
+    
+    # ══════════════════════════════════════════════════════════════
+    # FOOTER CYBERPUNK
+    # ══════════════════════════════════════════════════════════════
+    
     if won:
-        footer_text = f"GG WP"
+        footer_text = "⌁ GG WP ⌁"
     else:
         if is_jungler:
             toxic_footers = [
-                "Jungle diff simply too large",
-                "Enemy jungler owns you",
-                "Maybe try normals first?",
-                "Griefing the lanes speedrun",
-                "Jungle gap insurmountable"
+                "⌁ JUNGLE DIFF ⌁",
+                "⌁ OUTJUNGLED ⌁",
+                "⌁ SKILL ISSUE ⌁",
+                "⌁ JUNGLE GAP ⌁",
+                "⌁ TRY NORMALS ⌁"
             ]
         else:
             toxic_footers = [
-                "Uninstall recommended",
-                "Better luck next time (you'll need it)",
-                "Elo hell or skill issue?",
-                "Certified L moment",
-                "Hardstuck speedrun any%"
+                "⌁ UNINSTALL.EXE ⌁",
+                "⌁ SKILL ISSUE ⌁",
+                "⌁ ELO HELL? ⌁",
+                "⌁ CERTIFIED L ⌁",
+                "⌁ HARDSTUCK ⌁",
+                "⌁ DIFF TOO BIG ⌁"
             ]
         import random
         footer_text = random.choice(toxic_footers)
-
+    
     embed.set_footer(text=footer_text)
-
+    
     return embed
 
