@@ -545,29 +545,28 @@ def get_recent_matches(puuid, routing_region='europe', count=20):
 
 def get_daily_stats(puuid, region='euw1'):
     """
-    Récupère les stats des dernières 24 heures pour un joueur.
+    Récupère les stats de la journée (depuis minuit UTC) pour un joueur.
     Retourne: {'wins': X, 'losses': Y, 'games': Z, 'champions': [...]}
     """
-    from datetime import timedelta
-    
     if not RIOT_API_KEY:
         return None
     
     routing_region = REGION_TO_ROUTING.get(region, 'europe')
     
-    # Timestamp d'il y a 24 heures (en secondes)
+    # Timestamp de minuit aujourd'hui (UTC)
     now = datetime.now(timezone.utc)
-    twenty_four_hours_ago = int((now - timedelta(hours=24)).timestamp())
-    
-    print(f"[DailyStats] Fetching matches from last 24h...")
-    
+    midnight_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    midnight_timestamp = int(midnight_today.timestamp())
+
+    print(f"[DailyStats] Fetching matches since midnight UTC...")
+
     # Récupérer les 20 derniers matchs ranked
     match_ids = get_recent_matches(puuid, routing_region, count=20)
-    
+
     if not match_ids:
         print("[DailyStats] No matches found")
         return {'wins': 0, 'losses': 0, 'games': 0, 'champions': []}
-    
+
     daily_stats = {
         'wins': 0,
         'losses': 0,
@@ -577,46 +576,46 @@ def get_daily_stats(puuid, region='euw1'):
         'total_deaths': 0,
         'total_assists': 0
     }
-    
+
     for match_id in match_ids:
         # Récupérer les détails du match
         match_data = get_match_details(match_id, routing_region)
-        
+
         if not match_data:
             continue
-        
+
         # Vérifier si le match est dans les dernières 24h
         game_end_timestamp = match_data.get('info', {}).get('gameEndTimestamp', 0) // 1000  # ms -> s
-        
-        if game_end_timestamp < twenty_four_hours_ago:
-            # Match trop vieux, arrêter (les matchs sont triés du plus récent au plus ancien)
-            print(f"[DailyStats] Match {match_id[:10]}... is older than 24h, stopping")
+
+        if game_end_timestamp < midnight_timestamp:
+            # Match d'avant minuit, arrêter (les matchs sont triés du plus récent au plus ancien)
+            print(f"[DailyStats] Match {match_id[:10]}... is from before midnight, stopping")
             break
-        
+
         # Trouver les stats du joueur dans ce match
         player_stats = get_player_stats_from_match(match_data, puuid)
-        
+
         if player_stats:
             daily_stats['games'] += 1
-            
+
             if player_stats['win']:
                 daily_stats['wins'] += 1
             else:
                 daily_stats['losses'] += 1
-            
+
             daily_stats['champions'].append(player_stats['championName'])
             daily_stats['total_kills'] += player_stats['kills']
             daily_stats['total_deaths'] += player_stats['deaths']
             daily_stats['total_assists'] += player_stats['assists']
-    
+
     # Calculer le KDA moyen
     if daily_stats['games'] > 0:
         daily_stats['avg_kills'] = round(daily_stats['total_kills'] / daily_stats['games'], 1)
         daily_stats['avg_deaths'] = round(daily_stats['total_deaths'] / daily_stats['games'], 1)
         daily_stats['avg_assists'] = round(daily_stats['total_assists'] / daily_stats['games'], 1)
-    
+
     print(f"[DailyStats] Last 24h: {daily_stats['wins']}W {daily_stats['losses']}L ({daily_stats['games']} games)")
-    
+
     return daily_stats
 
 def get_match_details(match_id, routing_region='europe'):

@@ -1398,26 +1398,23 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
         tier = ranked_stats.get('tier', 'Unranked')
         rank = ranked_stats.get('rank', '')
         lp = ranked_stats.get('lp', 0)
-        wins = ranked_stats.get('wins', 0)
-        losses = ranked_stats.get('losses', 0)
 
         tier_emoji = lol_tracker.get_tier_emoji(tier)
         rank_display = lol_tracker.get_rank_display(tier, rank, lp)
-        winrate = round((wins / (wins + losses)) * 100) if (wins + losses) > 0 else 0
 
         embed.add_field(
             name=f"{tier_emoji} Ranked Solo/Duo",
-            value=f"**{rank_display}**\n{wins}W - {losses}L ({winrate}%)",
+            value=f"**{rank_display}**",
             inline=False
         )
     else:
         embed.add_field(
             name="❌ Ranked",
-            value="Player is Unranked or rank data unavailable",
+            value="Player is Unranked",
             inline=False
         )
 
-    # Récupérer les stats des dernières 24h
+    # Récupérer les stats du jour (depuis minuit)
     daily_stats = lol_tracker.get_daily_stats(puuid, region)
     
     if daily_stats and daily_stats['games'] > 0:
@@ -1428,13 +1425,10 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
         # Emoji basé sur la performance
         if daily_wins > daily_losses:
             daily_emoji = "📈"
-            daily_color = "green"
         elif daily_losses > daily_wins:
             daily_emoji = "📉"
-            daily_color = "red"
         else:
             daily_emoji = "➖"
-            daily_color = "yellow"
         
         # Champions joués (max 3)
         champions_played = daily_stats['champions'][:3]
@@ -1448,14 +1442,14 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
             avg_kda = f"\nAvg KDA: {daily_stats['avg_kills']}/{daily_stats['avg_deaths']}/{daily_stats['avg_assists']}"
         
         embed.add_field(
-            name=f"{daily_emoji} Last 24 Hours",
+            name=f"{daily_emoji} Today",
             value=f"**{daily_wins}W - {daily_losses}L** ({daily_games} games){avg_kda}\nChampions: {champs_text}",
             inline=False
         )
     else:
         embed.add_field(
-            name="📊 Last 24 Hours",
-            value="No ranked games played",
+            name="📊 Today",
+            value="No ranked games played today",
             inline=False
         )
 
