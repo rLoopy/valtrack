@@ -1491,6 +1491,10 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
             empty = 20 - filled
             bar = "▓" * filled + "░" * empty
             
+            # Affichage du parcours: Start → Current → Goal
+            start_display = f"{challenge.get('start_tier', 'S').title()} {challenge.get('start_rank', '2')}"
+            current_display = f"{challenge['current_tier'].title()} {challenge['current_rank']}"
+            
             # Couleur basée sur l'urgence pour le temps
             if days <= 1:
                 time_box = f"```diff\n- {days}j {hours}h remaining -\n```"
@@ -1502,7 +1506,7 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
             # Box pour les LP
             lp_box = f"```\n📍 {challenge['lp_needed']} LP to go\n```"
             
-            challenge_text = f"**Goal:** PLATINUM IV\n"
+            challenge_text = f"**{start_display}** → **{current_display}** → **Plat 4**\n"
             challenge_text += f"`{bar}` **{progress}%**\n"
             challenge_text += lp_box
             challenge_text += time_box

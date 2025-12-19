@@ -630,7 +630,8 @@ def get_daily_stats(puuid, region='euw1'):
 def get_plat_challenge_status(current_tier, current_rank, current_lp):
     """
     Calcule le progrès vers le challenge Platinum.
-    Retourne un dict avec les infos du challenge.
+    Point de départ: Silver 2 50 LP
+    Objectif: Platinum IV 0 LP
     """
     try:
         from zoneinfo import ZoneInfo
@@ -638,46 +639,72 @@ def get_plat_challenge_status(current_tier, current_rank, current_lp):
     except ImportError:
         import pytz
         paris_tz = pytz.timezone('Europe/Paris')
-
+    
     from datetime import timedelta
-
+    
     # Hiérarchie des ranks (du plus bas au plus haut)
     tier_order = ['IRON', 'BRONZE', 'SILVER', 'GOLD', 'PLATINUM', 'EMERALD', 'DIAMOND', 'MASTER', 'GRANDMASTER', 'CHALLENGER']
     rank_order = ['IV', 'III', 'II', 'I']  # IV est le plus bas
-
+    
     # Aussi accepter les chiffres
     rank_map = {'4': 'IV', '3': 'III', '2': 'II', '1': 'I', 'IV': 'IV', 'III': 'III', 'II': 'II', 'I': 'I'}
-
+    
     current_tier = current_tier.upper() if current_tier else 'UNRANKED'
     current_rank = rank_map.get(str(current_rank).upper(), 'IV') if current_rank else 'IV'
     current_lp = current_lp or 0
-
-    # Target: Platinum IV 0 LP
+    
+    # ═══════════════════════════════════════════
+    # CHALLENGE CONFIG
+    # ═══════════════════════════════════════════
+    # Point de départ: Silver 2 50 LP
+    start_tier = 'SILVER'
+    start_rank = 'II'
+    start_lp = 50
+    
+    # Objectif: Platinum IV 0 LP
     target_tier = 'PLATINUM'
     target_rank = 'IV'
-
+    target_lp = 0
+    
     # Calculer le deadline (lundi prochain à minuit Paris)
     now_paris = datetime.now(paris_tz)
     days_until_monday = (7 - now_paris.weekday()) % 7
     if days_until_monday == 0 and now_paris.hour >= 0:
         days_until_monday = 7  # Si on est lundi, c'est le lundi d'après
-
-    # En fait on veut le prochain lundi
+    
     next_monday = now_paris + timedelta(days=days_until_monday)
     next_monday = next_monday.replace(hour=0, minute=0, second=0, microsecond=0)
-
+    
     time_remaining = next_monday - now_paris
     hours_remaining = int(time_remaining.total_seconds() // 3600)
     days_remaining = hours_remaining // 24
     hours_mod = hours_remaining % 24
-
+    
+    # Fonction pour calculer les LP absolus
+    def calculate_total_lp(tier, rank, lp):
+        if tier not in tier_order:
+            return 0
+        tier_index = tier_order.index(tier)
+        rank_index = rank_order.index(rank) if rank in rank_order else 0
+        # Chaque tier = 4 divisions, chaque division = 100 LP
+        return (tier_index * 4 + rank_index) * 100 + lp
+    
+    # Calculer les LP
+    start_total_lp = calculate_total_lp(start_tier, start_rank, start_lp)    # Silver 2 50 LP
+    current_total_lp = calculate_total_lp(current_tier, current_rank, current_lp)
+    target_total_lp = calculate_total_lp(target_tier, target_rank, target_lp)  # Plat 4 0 LP
+    
+    # LP nécessaires depuis le départ jusqu'à l'objectif
+    total_lp_journey = target_total_lp - start_total_lp  # LP total du challenge
+    lp_climbed = current_total_lp - start_total_lp       # LP déjà grimpés
+    lp_needed = target_total_lp - current_total_lp       # LP restants
+    
     # Vérifier si déjà Plat ou plus
     if current_tier in tier_order:
         current_tier_index = tier_order.index(current_tier)
         target_tier_index = tier_order.index(target_tier)
-
+        
         if current_tier_index >= target_tier_index:
-            # Déjà Plat ou plus !
             return {
                 'completed': True,
                 'current_tier': current_tier,
@@ -686,61 +713,52 @@ def get_plat_challenge_status(current_tier, current_rank, current_lp):
                 'target_tier': target_tier,
                 'days_remaining': days_remaining,
                 'hours_remaining': hours_mod,
-                'message': "🎉 CHALLENGE COMPLETED! Already Platinum or higher!",
+                'message': "🎉 CHALLENGE COMPLETED!",
                 'progress_percent': 100
             }
-
-    # Calculer les LP totaux depuis Iron IV 0 LP
-    def calculate_total_lp(tier, rank, lp):
-        if tier not in tier_order:
-            return 0
-        tier_index = tier_order.index(tier)
-        rank_index = rank_order.index(rank) if rank in rank_order else 0
-        # Chaque tier = 4 divisions, chaque division = 100 LP
-        return (tier_index * 4 + rank_index) * 100 + lp
-
-    current_total_lp = calculate_total_lp(current_tier, current_rank, current_lp)
-    target_total_lp = calculate_total_lp(target_tier, target_rank, 0)
-
-    lp_needed = target_total_lp - current_total_lp
-    progress_percent = min(100, max(0, int((current_total_lp / target_total_lp) * 100)))
-
+    
+    # Calculer le pourcentage basé sur le point de départ
+    if total_lp_journey > 0:
+        progress_percent = min(100, max(0, int((lp_climbed / total_lp_journey) * 100)))
+    else:
+        progress_percent = 100
+    
     # Calculer les divisions restantes
-    divisions_remaining = lp_needed // 100
-
+    divisions_remaining = max(0, lp_needed // 100)
+    
     # Messages fun basés sur le progrès
     if lp_needed <= 0:
         message = "🎉 CHALLENGE COMPLETED!"
     elif lp_needed <= 100:
         message = "🔥 SO CLOSE! One more division!"
-    elif lp_needed <= 300:
-        message = "💪 Getting there! Keep grinding!"
-    elif lp_needed <= 500:
+    elif progress_percent >= 75:
+        message = "💪 Almost there! Keep pushing!"
+    elif progress_percent >= 50:
         message = "😤 Halfway there! Don't give up!"
+    elif progress_percent >= 25:
+        message = "🎮 Good progress! Keep grinding!"
     elif days_remaining <= 1:
         message = "⏰ LAST DAY! IT'S NOW OR NEVER!"
     elif days_remaining <= 2:
         message = "😰 Time is running out..."
     else:
         message = "🎮 The grind continues..."
-
-    # Progress bar visuel
-    filled = int(progress_percent / 10)
-    empty = 10 - filled
-    progress_bar = "█" * filled + "░" * empty
-
+    
     return {
         'completed': False,
         'current_tier': current_tier,
         'current_rank': current_rank,
         'current_lp': current_lp,
         'target_tier': target_tier,
+        'start_tier': start_tier,
+        'start_rank': start_rank,
         'lp_needed': lp_needed,
+        'lp_climbed': lp_climbed,
+        'total_lp_journey': total_lp_journey,
         'divisions_remaining': divisions_remaining,
         'days_remaining': days_remaining,
         'hours_remaining': hours_mod,
         'progress_percent': progress_percent,
-        'progress_bar': progress_bar,
         'message': message,
         'deadline': next_monday.strftime('%A %d %B %H:%M')
     }
