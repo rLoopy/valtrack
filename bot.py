@@ -603,141 +603,148 @@ async def check_player_match(channel, puuid, player_info):
                     # Les infos RR et rang sont déjà dans les variables rr_change et current_rank
                     # (récupérées plus tôt depuis mmr_history)
 
-                    # Créer l'embed Discord
-                    result_emoji = '✅' if won else '❌'
-                    result_text = "VICTOIRE" if won else "DÉFAITE"
-                    result_color = discord.Color.green() if won else discord.Color.red()
+                    # ═══════════════════════════════════════════════════════════════
+                    # STYLE RECON / VALORANT NEON
+                    # Palette: Deep Purple #7B2FBE, Magenta #E100FF, Cyan #00D4FF
+                    # ═══════════════════════════════════════════════════════════════
+
+                    # Couleur principale - Deep Purple (comme les skins Recon)
+                    result_color = discord.Color.from_rgb(123, 47, 190)  # Deep purple #7B2FBE
 
                     # Déterminer les badges de performance
                     badges = []
                     if acs >= 300:
-                        badges.append("🔥 DOMINATION")
+                        badges.append("◆ DOMINATION")
                     elif acs >= 250:
-                        badges.append("💪 EXCELLENT")
+                        badges.append("◆ EXCELLENT")
                     elif acs >= 200:
-                        badges.append("👍 SOLIDE")
+                        badges.append("◇ SOLIDE")
 
                     if kd_ratio >= 2.0:
-                        badges.append("💀 KILLER")
+                        badges.append("◆ KILLER")
                     elif kd_ratio >= 1.5:
-                        badges.append("⚔️ EFFICACE")
+                        badges.append("◇ EFFICACE")
 
                     if hs_percent >= 40:
-                        badges.append("🎯 HEADSHOT MACHINE")
+                        badges.append("◆ HEADSHOT MACHINE")
 
                     # Vérifier si c'est le meilleur de son équipe (MVP)
                     team_players = [p for p in match_data.get('players', {}).get('all_players', []) if p.get('team') == team]
                     if team_players:
                         best_acs = max(p.get('stats', {}).get('score', 0) // max(1, rounds_played) for p in team_players)
                         if acs == best_acs:
-                            badges.insert(0, "👑 MVP")
+                            badges.insert(0, "✦ MVP")
 
                     badges_text = " ".join(badges) if badges else ""
 
-                    # Ajouter le streak si significatif (3+)
-                    streak_text = ""
-                    if current_streak >= 3:
-                        streak_emoji = "🔥" if streak_type == 'win' else "❄️"
-                        streak_word = "victoires" if streak_type == 'win' else "défaites"
-                        streak_text = f"\n{streak_emoji} **{current_streak} {streak_word} d'affilée !**"
+                    # ══════════════════════════════════════════════════════════════
+                    # TITRE - Style épuré
+                    # ══════════════════════════════════════════════════════════════
+                    if won:
+                        title = "▸ VICTORY"
+                    else:
+                        title = "▸ DEFEAT"
 
+                    # ══════════════════════════════════════════════════════════════
+                    # DESCRIPTION - Style Recon épuré
+                    # ══════════════════════════════════════════════════════════════
+                    agent_display = agent.upper()
+
+                    # Header avec agent et KDA
+                    description = f"# {agent_display}\n"
+                    description += f"### {kills} / {deaths} / {assists}\n\n"
+
+                    # Ligne de statut
+                    if won:
+                        description += f"**{name}#{tag}** ─ ✦ Victory\n"
+                    else:
+                        description += f"**{name}#{tag}** ─ ✧ Defeat\n"
+
+                    # Badges compacts
+                    if badges_text:
+                        description += f"\n{badges_text}\n"
+
+                    # Streak si significatif (3+)
+                    if current_streak >= 3:
+                        streak_word = "wins" if streak_type == 'win' else "losses"
+                        description += f"\n> *{current_streak} {streak_word} in a row*"
+
+                    # Créer l'embed
                     embed = discord.Embed(
-                        title=f"{result_emoji} Nouveau match terminé!",
-                        description=f"**{name}#{tag}** a **{result_text.lower()}**\n{badges_text}{streak_text}",
+                        title=title,
+                        description=description,
                         color=result_color,
                         timestamp=datetime.now(timezone.utc)
                     )
 
-                    # Ajouter l'image de l'agent (thumbnail)
-                    # Les URLs des images d'agents sont disponibles dans l'API
+                    # Thumbnail avec l'image de l'agent
                     agent_img = player_stats.get('assets', {}).get('agent', {}).get('small')
                     if agent_img:
                         embed.set_thumbnail(url=agent_img)
 
-                    # Agent et score du match
-                    embed.add_field(
-                        name="🎭 Agent",
-                        value=agent,
-                        inline=True
-                    )
+                    # ══════════════════════════════════════════════════════════════
+                    # STATS - Style minimaliste
+                    # ══════════════════════════════════════════════════════════════
+
+                    kd_arrow = "▲" if kd_ratio >= 1.5 else ("▼" if kd_ratio < 1.0 and not won else "")
+
+                    stats_value = f"```\n"
+                    stats_value += f"  K/D ─────── {kd_ratio} {kd_arrow}\n"
+                    stats_value += f"  ACS ─────── {acs}\n"
+                    stats_value += f"  HS% ─────── {hs_percent}%\n"
+                    stats_value += f"```"
 
                     embed.add_field(
-                        name="📊 Score",
-                        value=f"{blue_rounds_won} - {red_rounds_won}",
-                        inline=True
-                    )
-
-                    if rr_change != 0:
-                        rr_emoji = "📈" if rr_change > 0 else "📉"
-                        embed.add_field(
-                            name=f"{rr_emoji} RR",
-                            value=f"{'+' if rr_change > 0 else ''}{rr_change} RR",
-                            inline=True
-                        )
-
-                    # Stats de performance
-                    embed.add_field(
-                        name="⚔️ K/D/A",
-                        value=f"{kills}/{deaths}/{assists}",
-                        inline=True
-                    )
-
-                    embed.add_field(
-                        name="📈 ACS",
-                        value=f"{acs}",
-                        inline=True
-                    )
-
-                    embed.add_field(
-                        name="🎯 K/D",
-                        value=f"{kd_ratio}",
-                        inline=True
-                    )
-
-                    embed.add_field(
-                        name="🎯 HS%",
-                        value=f"{hs_percent}%",
-                        inline=True
-                    )
-
-                    if current_rank:
-                        # Afficher le rang avec le nombre de RR actuel
-                        rank_display = f"{current_rank}"
-                        if current_rr > 0:
-                            rank_display += f" ({current_rr} RR)"
-
-                        embed.add_field(
-                            name="🏆 Rang actuel",
-                            value=rank_display,
-                            inline=True
-                        )
-
-                    # Ajouter l'ELO si disponible
-                    if elo > 0:
-                        embed.add_field(
-                            name="📊 ELO",
-                            value=f"{elo}",
-                            inline=True
-                        )
-
-                    # Ajouter des infos supplémentaires
-                    map_name = match_data.get('metadata', {}).get('map', 'Unknown')
-                    game_mode = match_data.get('metadata', {}).get('mode', 'Unknown')
-
-                    embed.add_field(
-                        name="🗺️ Map",
-                        value=map_name,
+                        name="◈ PERFORMANCE",
+                        value=stats_value,
                         inline=False
                     )
 
+                    # ══════════════════════════════════════════════════════════════
+                    # MATCH INFO - Compact
+                    # ══════════════════════════════════════════════════════════════
+                    map_name = match_data.get('metadata', {}).get('map', 'Unknown')
+
+                    # Déterminer le score dans le bon ordre
+                    if team == 'BLUE':
+                        score_display = f"{blue_rounds_won} - {red_rounds_won}"
+                    else:
+                        score_display = f"{red_rounds_won} - {blue_rounds_won}"
+
+                    match_value = f"```\n"
+                    match_value += f"  MAP ── {map_name}\n"
+                    match_value += f"  SCR ── {score_display}\n"
+                    if rr_change != 0:
+                        rr_arrow = "▲" if rr_change > 0 else "▼"
+                        match_value += f"  RR  ── {'+' if rr_change > 0 else ''}{rr_change} {rr_arrow}\n"
+                    match_value += f"```"
+
                     embed.add_field(
-                        name="🎮 Mode",
-                        value=game_mode,
+                        name="◈ MATCH",
+                        value=match_value,
                         inline=True
                     )
 
-                    # Footer avec le match ID pour permettre la détection de doublons
-                    embed.set_footer(text=f"Match ID: {latest_match_id}")
+                    # ══════════════════════════════════════════════════════════════
+                    # RANK - Si disponible
+                    # ══════════════════════════════════════════════════════════════
+                    if current_rank:
+                        rank_value = f"```\n"
+                        rank_value += f"  {current_rank}\n"
+                        if current_rr > 0:
+                            rank_value += f"  {current_rr} RR\n"
+                        if elo > 0:
+                            rank_value += f"  ELO {elo}\n"
+                        rank_value += f"```"
+
+                        embed.add_field(
+                            name="◈ RANK",
+                            value=rank_value,
+                            inline=True
+                        )
+
+                    # Footer minimaliste
+                    embed.set_footer(text=f"ID: {latest_match_id[:12]}...")
 
                     # Créer la vue avec les boutons interactifs
                     view = MatchDetailsView(latest_match_id, name, tag)
@@ -819,18 +826,43 @@ async def status_command(interaction: discord.Interaction):
     """Affiche le statut du bot"""
     global tracked_players
 
+    # ═══════════════════════════════════════════════════════════════
+    # STYLE RECON - Deep Purple theme
+    # ═══════════════════════════════════════════════════════════════
+
+    result_color = discord.Color.from_rgb(123, 47, 190)  # Deep purple #7B2FBE
+
+    description = "### System Online\n"
+
     embed = discord.Embed(
-        title="Status du bot",
-        color=discord.Color.blue()
+        title="▸ STATUS",
+        description=description,
+        color=result_color
     )
 
-    embed.add_field(name="Bot", value="🟢 Actif", inline=True)
-    embed.add_field(name="Joueurs trackés", value=f"{len(tracked_players)}", inline=True)
-    embed.add_field(name="Intervalle", value=f"{POLL_INTERVAL}s", inline=True)
+    status_value = f"```\n"
+    status_value += f"  BOT ─────── ACTIVE ✓\n"
+    status_value += f"  PLAYERS ─── {len(tracked_players)}\n"
+    status_value += f"  INTERVAL ── {POLL_INTERVAL}s\n"
+    status_value += f"```"
+
+    embed.add_field(
+        name="◈ SYSTEM",
+        value=status_value,
+        inline=False
+    )
 
     if tracked_players:
-        players_list = "\n".join([f"• {p['name']}#{p['tag']}" for p in tracked_players.values()])
-        embed.add_field(name="Liste des joueurs", value=players_list, inline=False)
+        players_value = f"```\n"
+        for p in tracked_players.values():
+            players_value += f"  ▸ {p['name']}#{p['tag']}\n"
+        players_value += f"```"
+
+        embed.add_field(
+            name="◈ TRACKED",
+            value=players_value,
+            inline=False
+        )
 
     await interaction.response.send_message(embed=embed)
 
@@ -870,14 +902,32 @@ async def add_player_command(interaction: discord.Interaction, name: str, tag: s
     # Ajouter le joueur
     add_tracked_player(real_name, real_tag, puuid)
 
+    # ═══════════════════════════════════════════════════════════════
+    # STYLE RECON - Deep Purple theme
+    # ═══════════════════════════════════════════════════════════════
+
+    result_color = discord.Color.from_rgb(123, 47, 190)  # Deep purple #7B2FBE
+
+    description = f"# {real_name}#{real_tag}\n"
+    description += f"### Added to tracking\n"
+
     embed = discord.Embed(
-        title="✅ Joueur ajouté !",
-        description=f"**{real_name}#{real_tag}** est maintenant tracké",
-        color=discord.Color.green()
+        title="▸ PLAYER ADDED",
+        description=description,
+        color=result_color
     )
-    embed.add_field(name="Région", value=region.upper(), inline=True)
-    embed.add_field(name="Niveau", value=level, inline=True)
-    embed.add_field(name="Total trackés", value=len(tracked_players), inline=True)
+
+    info_value = f"```\n"
+    info_value += f"  REGION ─── {region.upper()}\n"
+    info_value += f"  LEVEL ──── {level}\n"
+    info_value += f"  TRACKED ── {len(tracked_players)}\n"
+    info_value += f"```"
+
+    embed.add_field(
+        name="◈ INFO",
+        value=info_value,
+        inline=False
+    )
 
     await interaction.followup.send(embed=embed)
 
@@ -911,23 +961,35 @@ async def list_players_command(interaction: discord.Interaction):
         await interaction.response.send_message("📋 Aucun joueur tracké pour le moment.\nUtilisez `/addplayer nom tag` pour en ajouter.")
         return
 
+    # ═══════════════════════════════════════════════════════════════
+    # STYLE RECON - Deep Purple theme
+    # ═══════════════════════════════════════════════════════════════
+
+    result_color = discord.Color.from_rgb(123, 47, 190)  # Deep purple #7B2FBE
+
+    description = f"### {len(tracked_players)} player(s) monitored\n"
+
     embed = discord.Embed(
-        title="📋 Joueurs trackés",
-        description=f"{len(tracked_players)} joueur(s) surveillé(s)",
-        color=discord.Color.blue()
+        title="▸ TRACKED PLAYERS",
+        description=description,
+        color=result_color
     )
 
+    players_value = f"```\n"
     for player_info in tracked_players.values():
         name = player_info['name']
         tag = player_info['tag']
         last_match = player_info.get('last_match_id', 'Aucun')
-        last_match_short = last_match[:8] + "..." if last_match and last_match != 'Aucun' else 'Aucun'
+        last_match_short = last_match[:8] + "..." if last_match and last_match != 'Aucun' else '—'
+        players_value += f"  ▸ {name}#{tag}\n"
+        players_value += f"    Last: {last_match_short}\n"
+    players_value += f"```"
 
-        embed.add_field(
-            name=f"{name}#{tag}",
-            value=f"Dernier match: `{last_match_short}`",
-            inline=False
-        )
+    embed.add_field(
+        name="◈ PLAYERS",
+        value=players_value,
+        inline=False
+    )
 
     await interaction.response.send_message(embed=embed)
 
@@ -990,62 +1052,82 @@ async def stats_command(interaction: discord.Interaction, name: str = None, tag:
         else:
             break
 
-    streak_emoji = "🔥" if last_result and current_streak >= 3 else "❄️" if not last_result and current_streak >= 3 else ""
-    streak_text = f"{'Victoire' if last_result else 'Défaite'}s" if current_streak > 1 else ""
+    # ═══════════════════════════════════════════════════════════════
+    # STYLE RECON - Deep Purple theme
+    # ═══════════════════════════════════════════════════════════════
 
-    # Créer l'embed
-    embed_color = discord.Color.green() if winrate >= 50 else discord.Color.red()
+    result_color = discord.Color.from_rgb(123, 47, 190)  # Deep purple #7B2FBE
+
+    # ══════════════════════════════════════════════════════════════
+    # DESCRIPTION - Style Recon épuré
+    # ══════════════════════════════════════════════════════════════
+
+    winrate_arrow = "▲" if winrate >= 50 else "▼"
+
+    description = f"# {name}#{tag}\n"
+    description += f"### {total_matches} matchs analysés\n\n"
+
+    # Streak si significatif
+    if current_streak >= 3:
+        streak_word = "wins" if last_result else "losses"
+        description += f"> *{current_streak} {streak_word} in a row*\n"
+
     embed = discord.Embed(
-        title=f"📊 Statistiques de {name}#{tag}",
-        description=f"Basées sur les {total_matches} derniers matchs compétitifs",
-        color=embed_color,
+        title="▸ STATISTIQUES",
+        description=description,
+        color=result_color,
         timestamp=datetime.now(timezone.utc)
     )
 
-    # Rang actuel
-    embed.add_field(
-        name="🏆 Rang actuel",
-        value=f"**{current_rank}**\n{current_rr} RR",
-        inline=True
-    )
+    # ══════════════════════════════════════════════════════════════
+    # RANK - Style compact
+    # ══════════════════════════════════════════════════════════════
 
-    # ELO
+    rank_value = f"```\n"
+    rank_value += f"  {current_rank}\n"
+    rank_value += f"  {current_rr} RR\n"
     if current_elo > 0:
-        embed.add_field(
-            name="📊 ELO",
-            value=f"{current_elo}",
-            inline=True
-        )
+        rank_value += f"  ELO {current_elo}\n"
+    rank_value += f"```"
 
-    # Winrate
     embed.add_field(
-        name="📈 Winrate",
-        value=f"**{winrate}%**\n{wins}W - {losses}L",
+        name="◈ RANK",
+        value=rank_value,
         inline=True
     )
 
-    # RR moyen
-    rr_emoji = "📈" if avg_rr_change > 0 else "📉"
+    # ══════════════════════════════════════════════════════════════
+    # WINRATE - Style compact
+    # ══════════════════════════════════════════════════════════════
+
+    winrate_value = f"```\n"
+    winrate_value += f"  {winrate}% {winrate_arrow}\n"
+    winrate_value += f"  {wins}W - {losses}L\n"
+    winrate_value += f"```"
+
     embed.add_field(
-        name=f"{rr_emoji} RR Moyen",
-        value=f"{'+' if avg_rr_change > 0 else ''}{avg_rr_change} RR/match",
+        name="◈ WINRATE",
+        value=winrate_value,
         inline=True
     )
 
-    # RR total
-    embed.add_field(
-        name="💰 RR Total",
-        value=f"{'+' if total_rr_change > 0 else ''}{total_rr_change} RR",
-        inline=True
-    )
+    # ══════════════════════════════════════════════════════════════
+    # RR STATS - Style compact
+    # ══════════════════════════════════════════════════════════════
 
-    # Streak actuelle
-    if current_streak > 1:
-        embed.add_field(
-            name=f"{streak_emoji} Série actuelle",
-            value=f"**{current_streak}** {streak_text}",
-            inline=True
-        )
+    rr_arrow = "▲" if avg_rr_change > 0 else "▼"
+    total_arrow = "▲" if total_rr_change > 0 else "▼"
+
+    rr_value = f"```\n"
+    rr_value += f"  AVG ── {'+' if avg_rr_change > 0 else ''}{avg_rr_change}/m {rr_arrow}\n"
+    rr_value += f"  TOT ── {'+' if total_rr_change > 0 else ''}{total_rr_change} {total_arrow}\n"
+    rr_value += f"```"
+
+    embed.add_field(
+        name="◈ RR CHANGE",
+        value=rr_value,
+        inline=False
+    )
 
     # Top 3 des maps jouées
     map_counts = {}
@@ -1055,10 +1137,14 @@ async def stats_command(interaction: discord.Interaction, name: str = None, tag:
 
     top_maps = sorted(map_counts.items(), key=lambda x: x[1], reverse=True)[:3]
     if top_maps:
-        maps_text = "\n".join([f"{i+1}. {map_name} ({count} matchs)" for i, (map_name, count) in enumerate(top_maps)])
+        maps_value = f"```\n"
+        for i, (map_name, count) in enumerate(top_maps):
+            maps_value += f"  {i+1}. {map_name} ({count})\n"
+        maps_value += f"```"
+
         embed.add_field(
-            name="🗺️ Maps les plus jouées",
-            value=maps_text,
+            name="◈ TOP MAPS",
+            value=maps_value,
             inline=False
         )
 
@@ -1158,28 +1244,66 @@ async def rank_history_command(interaction: discord.Interaction, name: str = Non
     highest_elo = max(elos)
     lowest_elo = min(elos)
 
+    # ═══════════════════════════════════════════════════════════════
+    # STYLE RECON - Deep Purple theme
+    # ═══════════════════════════════════════════════════════════════
+
+    result_color = discord.Color.from_rgb(123, 47, 190)  # Deep purple #7B2FBE
+
+    description = f"# {name}#{tag}\n"
+    description += f"### {len(mmr_history)} matchs analysés\n"
+
     embed = discord.Embed(
-        title=f"📈 Historique de rang - {name}#{tag}",
-        description=f"Analyse des {len(mmr_history)} derniers matchs compétitifs",
-        color=discord.Color.blue(),
+        title="▸ RANK HISTORY",
+        description=description,
+        color=result_color,
         timestamp=datetime.now(timezone.utc)
     )
 
+    # ══════════════════════════════════════════════════════════════
+    # RANK - Style compact
+    # ══════════════════════════════════════════════════════════════
+
+    rank_value = f"```\n"
+    rank_value += f"  {current_rank}\n"
+    rank_value += f"  {current_rr} RR\n"
+    rank_value += f"  ELO {current_elo}\n"
+    rank_value += f"```"
+
     embed.add_field(
-        name="🏆 Rang actuel",
-        value=f"**{current_rank}**\n{current_rr} RR | {current_elo} ELO",
+        name="◈ CURRENT RANK",
+        value=rank_value,
         inline=True
     )
 
+    # ══════════════════════════════════════════════════════════════
+    # PROGRESSION - Style compact
+    # ══════════════════════════════════════════════════════════════
+
+    prog_arrow = "▲" if total_rr_change > 0 else "▼"
+
+    prog_value = f"```\n"
+    prog_value += f"  {'+' if total_rr_change > 0 else ''}{total_rr_change} RR {prog_arrow}\n"
+    prog_value += f"```"
+
     embed.add_field(
-        name="📊 Progression",
-        value=f"{'+' if total_rr_change > 0 else ''}{total_rr_change} RR",
+        name="◈ PROGRESSION",
+        value=prog_value,
         inline=True
     )
 
+    # ══════════════════════════════════════════════════════════════
+    # ELO RANGE - Style compact
+    # ══════════════════════════════════════════════════════════════
+
+    elo_value = f"```\n"
+    elo_value += f"  MAX ── {highest_elo}\n"
+    elo_value += f"  MIN ── {lowest_elo}\n"
+    elo_value += f"```"
+
     embed.add_field(
-        name="📈 ELO Max/Min",
-        value=f"Max: {highest_elo}\nMin: {lowest_elo}",
+        name="◈ ELO RANGE",
+        value=elo_value,
         inline=True
     )
 
@@ -1291,13 +1415,32 @@ async def add_lol_player_command(interaction: discord.Interaction, riot_id: str)
     # Ajouter le joueur (on stocke le Riot ID complet)
     lol_tracker.add_lol_player(db_connection, f"{summoner_name_real}#{summoner_tag}", region, puuid)
 
+    # ═══════════════════════════════════════════════════════════════
+    # STYLE RECON - Deep Purple theme
+    # ═══════════════════════════════════════════════════════════════
+
+    result_color = discord.Color.from_rgb(123, 47, 190)  # Deep purple #7B2FBE
+
+    description = f"# {summoner_name_real}#{summoner_tag}\n"
+    description += f"### Added to tracking\n"
+
     embed = discord.Embed(
-        title="✅ Invocateur ajouté !",
-        description=f"**{summoner_name_real}#{summoner_tag}** (Niveau {summoner_level}) est maintenant tracké",
-        color=discord.Color.blue()
+        title="▸ SUMMONER ADDED",
+        description=description,
+        color=result_color
     )
-    embed.add_field(name="Région", value=region.upper(), inline=True)
-    embed.add_field(name="Niveau", value=summoner_level, inline=True)
+
+    info_value = f"```\n"
+    info_value += f"  REGION ─── {region.upper()}\n"
+    info_value += f"  LEVEL ──── {summoner_level}\n"
+    info_value += f"  TRACKED ── {len(lol_tracker.tracked_players_lol) + 1}\n"
+    info_value += f"```"
+
+    embed.add_field(
+        name="◈ INFO",
+        value=info_value,
+        inline=False
+    )
 
     # Ajouter les stats ranked si disponibles
     if ranked_stats:
@@ -1309,17 +1452,18 @@ async def add_lol_player_command(interaction: discord.Interaction, riot_id: str)
                 wins = queue['wins']
                 losses = queue['losses']
 
-                tier_emoji = lol_tracker.get_tier_emoji(tier)
-                rank_display = lol_tracker.get_rank_display(tier, rank, lp)
+                rank_value = f"```\n"
+                rank_value += f"  {tier} {rank}\n"
+                rank_value += f"  {lp} LP\n"
+                rank_value += f"  {wins}W - {losses}L\n"
+                rank_value += f"```"
 
                 embed.add_field(
-                    name=f"{tier_emoji} Ranked Solo/Duo",
-                    value=f"{rank_display}\n{wins}W - {losses}L",
+                    name="◈ RANKED SOLO/DUO",
+                    value=rank_value,
                     inline=False
                 )
                 break
-
-    embed.add_field(name="Total trackés (LoL)", value=len(lol_tracker.tracked_players_lol), inline=True)
 
     await interaction.followup.send(embed=embed)
 
@@ -1330,23 +1474,35 @@ async def list_lol_players_command(interaction: discord.Interaction):
         await interaction.response.send_message("📋 Aucun invocateur LoL tracké pour le moment.\nUtilisez `/addplayer-lol` pour en ajouter.")
         return
 
+    # ═══════════════════════════════════════════════════════════════
+    # STYLE RECON - Deep Purple theme
+    # ═══════════════════════════════════════════════════════════════
+
+    result_color = discord.Color.from_rgb(123, 47, 190)  # Deep purple #7B2FBE
+
+    description = f"### {len(lol_tracker.tracked_players_lol)} summoner(s) monitored\n"
+
     embed = discord.Embed(
-        title="📋 Invocateurs LoL trackés",
-        description=f"{len(lol_tracker.tracked_players_lol)} invocateur(s) surveillé(s)",
-        color=discord.Color.blue()
+        title="▸ TRACKED SUMMONERS",
+        description=description,
+        color=result_color
     )
 
+    players_value = f"```\n"
     for player_info in lol_tracker.tracked_players_lol.values():
         summoner_name = player_info['summoner_name']
         region = player_info['region']
         last_match = player_info.get('last_match_id', 'Aucun')
-        last_match_short = last_match[:8] + "..." if last_match and last_match != 'Aucun' else 'Aucun'
+        last_match_short = last_match[:8] + "..." if last_match and last_match != 'Aucun' else '—'
+        players_value += f"  ▸ {summoner_name} [{region.upper()}]\n"
+        players_value += f"    Last: {last_match_short}\n"
+    players_value += f"```"
 
-        embed.add_field(
-            name=f"{summoner_name} ({region.upper()})",
-            value=f"Dernier match: `{last_match_short}`",
-            inline=False
-        )
+    embed.add_field(
+        name="◈ SUMMONERS",
+        value=players_value,
+        inline=False
+    )
 
     await interaction.response.send_message(embed=embed)
 
