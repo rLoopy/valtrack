@@ -1,6 +1,6 @@
 """
-League of Legends Tracker Module
-Fonctions et utilitaires pour tracker les matchs LoL
+League of Legends & TFT Tracker Module
+Fonctions et utilitaires pour tracker les matchs LoL et TFT
 """
 
 import requests
@@ -43,6 +43,9 @@ REGION_TO_ROUTING = {
 
 # Stockage en mémoire des joueurs LoL trackés
 tracked_players_lol = {}  # Format: {puuid: {name, region, last_match_id}}
+
+# Stockage en mémoire des joueurs TFT trackés (liés aux joueurs LoL)
+tracked_players_tft = {}  # Format: {puuid: {name, region, last_match_id}}
 
 # ==================== FONCTIONS DATABASE LOL ====================
 
@@ -131,6 +134,94 @@ def update_last_match_for_lol_player(db_connection, puuid, match_id):
     if puuid in tracked_players_lol:
         tracked_players_lol[puuid]['last_match_id'] = match_id
         save_lol_players_to_db(db_connection, tracked_players_lol)
+
+# ==================== FONCTIONS DATABASE TFT ====================
+
+def load_tft_players_from_db(db_connection):
+    """Charge les joueurs TFT depuis PostgreSQL"""
+    if not db_connection:
+        return {}
+
+    try:
+        from psycopg2.extras import RealDictCursor
+        cursor = db_connection.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("SELECT * FROM tracked_players_tft")
+        rows = cursor.fetchall()
+        cursor.close()
+
+        players = {}
+        for row in rows:
+            players[row['puuid']] = {
+                'summoner_name': row['summoner_name'],
+                'region': row['region'],
+                'last_match_id': row['last_match_id']
+            }
+
+        return players
+    except Exception as e:
+        print(f"⚠️ Erreur lors du chargement des joueurs TFT depuis la DB: {e}")
+        return {}
+
+def save_tft_players_to_db(db_connection, players):
+    """Sauvegarde les joueurs TFT dans PostgreSQL"""
+    if not db_connection:
+        return False
+
+    # Vérifier que la connexion est toujours active
+    try:
+        if db_connection.closed:
+            print("⚠️ Connexion DB fermée, impossible de sauvegarder TFT")
+            return False
+    except Exception:
+        return False
+
+    try:
+        cursor = db_connection.cursor()
+
+        # Clear et re-insert
+        cursor.execute("DELETE FROM tracked_players_tft")
+
+        for puuid, info in players.items():
+            cursor.execute("""
+                INSERT INTO tracked_players_tft (puuid, summoner_name, region, last_match_id)
+                VALUES (%s, %s, %s, %s)
+            """, (puuid, info['summoner_name'], info['region'], info.get('last_match_id')))
+
+        db_connection.commit()
+        cursor.close()
+        print("💾 Joueurs TFT sauvegardés dans PostgreSQL")
+        return True
+    except Exception as e:
+        print(f"⚠️ Erreur lors de la sauvegarde des joueurs TFT dans la DB: {e}")
+        if db_connection:
+            db_connection.rollback()
+        return False
+
+def add_tft_player(db_connection, summoner_name, region, puuid):
+    """Ajoute un joueur TFT à la liste de tracking"""
+    global tracked_players_tft
+    tracked_players_tft[puuid] = {
+        'summoner_name': summoner_name,
+        'region': region,
+        'last_match_id': None
+    }
+    save_tft_players_to_db(db_connection, tracked_players_tft)
+
+def remove_tft_player(db_connection, puuid):
+    """Retire un joueur TFT de la liste de tracking"""
+    global tracked_players_tft
+    if puuid in tracked_players_tft:
+        del tracked_players_tft[puuid]
+        save_tft_players_to_db(db_connection, tracked_players_tft)
+        return True
+    return False
+
+def update_last_match_for_tft_player(db_connection, puuid, match_id):
+    """Met à jour le dernier match ID pour un joueur TFT"""
+    global tracked_players_tft
+    if puuid in tracked_players_tft:
+        tracked_players_tft[puuid]['last_match_id'] = match_id
+        save_tft_players_to_db(db_connection, tracked_players_tft)
 
 # ==================== FONCTIONS API RIOT ====================
 
@@ -1356,6 +1447,575 @@ def create_lol_match_embed(match_info, discord_module, daily_stats=None):
         footer_text = random.choice(toxic_footers)
 
     embed.set_footer(text=f"◈ {footer_text}")
+
+    return embed
+
+
+# ==================== FONCTIONS TFT ====================
+
+def get_tft_recent_matches(puuid, routing_region='europe', count=20):
+    """Récupère l'historique des matchs TFT d'un joueur"""
+    if not RIOT_API_KEY:
+        return []
+
+    regional_endpoint = RIOT_API_BASE.get(routing_region, RIOT_API_BASE['europe'])
+    url = f'{regional_endpoint}/tft/match/v1/matches/by-puuid/{puuid}/ids?start=0&count={count}'
+    headers = {'X-Riot-Token': RIOT_API_KEY}
+
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+
+        if response.status_code == 429:
+            print("⚠️ Rate limit atteint sur TFT matches")
+            return None
+
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"Erreur lors de la récupération des matchs TFT: {e}")
+        return []
+
+
+def get_tft_match_details(match_id, routing_region='europe'):
+    """Récupère les détails d'un match TFT"""
+    if not RIOT_API_KEY:
+        return None
+
+    regional_endpoint = RIOT_API_BASE.get(routing_region, RIOT_API_BASE['europe'])
+    url = f'{regional_endpoint}/tft/match/v1/matches/{match_id}'
+    headers = {'X-Riot-Token': RIOT_API_KEY}
+
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+
+        if response.status_code == 429:
+            print("⚠️ Rate limit atteint sur TFT match details")
+            return None
+
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"Erreur lors de la récupération du match TFT: {e}")
+        return None
+
+
+def get_tft_player_stats_from_match(match_data, puuid):
+    """Extrait les stats d'un joueur depuis un match TFT"""
+    if not match_data or 'info' not in match_data:
+        return None
+
+    participants = match_data['info'].get('participants', [])
+    for participant in participants:
+        if participant.get('puuid') == puuid:
+            return participant
+
+    return None
+
+
+def get_tft_ranked_stats(puuid, region='euw1'):
+    """
+    Récupère les stats ranked TFT d'un invocateur par son PUUID.
+    Utilise d'abord le summoner endpoint pour obtenir l'ID, puis le ranked endpoint.
+    """
+    if not RIOT_API_KEY:
+        print("⚠️ RIOT_API_KEY non configurée")
+        return None
+
+    # D'abord récupérer le summoner ID
+    summoner_info = get_summoner_by_puuid(puuid, region)
+
+    if not summoner_info:
+        print("[TFT Rank] Could not get summoner info")
+        return None
+
+    summoner_id = summoner_info.get('id')
+
+    if not summoner_id:
+        print("[TFT Rank] No summoner ID in response")
+        return None
+
+    print(f"[TFT Rank] Got summoner ID: {summoner_id[:15]}...")
+
+    # Utiliser l'endpoint TFT league
+    try:
+        url = f'https://{region}.api.riotgames.com/tft/league/v1/entries/by-summoner/{summoner_id}'
+        headers = {'X-Riot-Token': RIOT_API_KEY}
+
+        print(f"[TFT Rank] Fetching from: {url}")
+        response = requests.get(url, headers=headers, timeout=10)
+
+        if response.status_code == 200:
+            data = response.json()
+            print(f"[TFT Rank] Got {len(data)} queue entries")
+
+            for entry in data:
+                # TFT has RANKED_TFT queue
+                if entry.get('queueType') == 'RANKED_TFT':
+                    result = {
+                        'tier': entry.get('tier', 'Unranked'),
+                        'rank': entry.get('rank', ''),
+                        'lp': entry.get('leaguePoints', 0),
+                        'wins': entry.get('wins', 0),
+                        'losses': entry.get('losses', 0)
+                    }
+                    print(f"[TFT Rank] SUCCESS: {result['tier']} {result['rank']} {result['lp']}LP")
+                    return result
+
+            print("[TFT Rank] No TFT ranked queue found in entries")
+        elif response.status_code == 404:
+            print("[TFT Rank] Player not found or unranked")
+        else:
+            print(f"[TFT Rank] API error: {response.status_code} - {response.text[:100]}")
+    except Exception as e:
+        print(f"[TFT Rank] Error: {e}")
+
+    return None
+
+
+def get_tft_daily_stats(puuid, region='euw1'):
+    """
+    Récupère les stats TFT de la journée (depuis minuit heure Paris) pour un joueur.
+    Retourne: {'games': X, 'top4': Y, 'placements': [...], 'avg_placement': Z}
+    """
+    try:
+        from zoneinfo import ZoneInfo
+        paris_tz = ZoneInfo('Europe/Paris')
+    except ImportError:
+        import pytz
+        paris_tz = pytz.timezone('Europe/Paris')
+
+    if not RIOT_API_KEY:
+        return None
+
+    routing_region = REGION_TO_ROUTING.get(region, 'europe')
+
+    # Timestamp de minuit aujourd'hui (heure Paris)
+    now_paris = datetime.now(paris_tz)
+    midnight_paris = now_paris.replace(hour=0, minute=0, second=0, microsecond=0)
+    midnight_timestamp = int(midnight_paris.timestamp())
+
+    print(f"[TFT DailyStats] Fetching matches since midnight...")
+
+    # Récupérer les 20 derniers matchs TFT
+    match_ids = get_tft_recent_matches(puuid, routing_region, count=20)
+
+    if not match_ids:
+        print("[TFT DailyStats] No matches found")
+        return {'games': 0, 'top4': 0, 'placements': [], 'avg_placement': 0}
+
+    daily_stats = {
+        'games': 0,
+        'top4': 0,  # Top 4 = win in TFT
+        'first_place': 0,
+        'placements': [],
+        'avg_placement': 0
+    }
+
+    for match_id in match_ids:
+        # Récupérer les détails du match
+        match_data = get_tft_match_details(match_id, routing_region)
+
+        if not match_data:
+            continue
+
+        # Vérifier si le match est dans la journée
+        game_timestamp = match_data.get('info', {}).get('game_datetime', 0) // 1000  # ms -> s
+
+        if game_timestamp < midnight_timestamp:
+            print(f"[TFT DailyStats] Match {match_id[:10]}... is from before midnight, stopping")
+            break
+
+        # Trouver les stats du joueur dans ce match
+        player_stats = get_tft_player_stats_from_match(match_data, puuid)
+
+        if player_stats:
+            placement = player_stats.get('placement', 8)
+            daily_stats['games'] += 1
+            daily_stats['placements'].append(placement)
+
+            if placement <= 4:
+                daily_stats['top4'] += 1
+            if placement == 1:
+                daily_stats['first_place'] += 1
+
+    # Calculer la moyenne des placements
+    if daily_stats['games'] > 0:
+        daily_stats['avg_placement'] = round(sum(daily_stats['placements']) / daily_stats['games'], 1)
+
+    print(f"[TFT DailyStats] Today: {daily_stats['games']} games, {daily_stats['top4']} top4, avg: {daily_stats['avg_placement']}")
+
+    return daily_stats
+
+
+async def check_tft_player_match(db_connection, puuid, player_info):
+    """Vérifie si un joueur TFT a terminé un nouveau match"""
+    try:
+        summoner_name = player_info['summoner_name']
+        region = player_info['region']
+        last_match_id = player_info.get('last_match_id')
+
+        # Déterminer la routing region
+        routing_region = REGION_TO_ROUTING.get(region, 'europe')
+
+        # Récupérer les derniers matchs TFT (juste le premier)
+        match_ids = get_tft_recent_matches(puuid, routing_region, count=1)
+
+        if match_ids is None:
+            # Rate limit
+            return None
+
+        if not match_ids or len(match_ids) == 0:
+            return None
+
+        latest_match_id = match_ids[0]
+
+        # Si c'est un nouveau match
+        if latest_match_id != last_match_id:
+            print(f"[TFT - {summoner_name}] Nouveau match détecté: {latest_match_id}")
+
+            # Récupérer les détails du match
+            match_data = get_tft_match_details(latest_match_id, routing_region)
+
+            if match_data is None:
+                # Rate limit
+                return None
+
+            if match_data:
+                # Obtenir les stats du joueur
+                player_stats = get_tft_player_stats_from_match(match_data, puuid)
+
+                if player_stats:
+                    # Récupérer le rang actuel TFT
+                    ranked_info = None
+                    try:
+                        print(f"[TFT - {summoner_name}] Fetching TFT rank...")
+                        ranked_info = get_tft_ranked_stats(puuid, region)
+
+                        if ranked_info:
+                            print(f"[TFT - {summoner_name}] Rank found: {ranked_info['tier']} {ranked_info['rank']} - {ranked_info['lp']} LP")
+                        else:
+                            print(f"[TFT - {summoner_name}] Rank not available (unranked)")
+                    except Exception as e:
+                        print(f"[TFT - {summoner_name}] Error fetching rank: {e}")
+
+                    # Mettre à jour le dernier match ID
+                    update_last_match_for_tft_player(db_connection, puuid, latest_match_id)
+
+                    # Retourner les données pour créer l'embed
+                    return {
+                        'match_id': latest_match_id,
+                        'match_data': match_data,
+                        'player_stats': player_stats,
+                        'summoner_name': summoner_name,
+                        'region': region,
+                        'ranked_info': ranked_info
+                    }
+                else:
+                    print(f"[TFT - {summoner_name}] Joueur non trouvé dans le match {latest_match_id}")
+
+            # Mettre à jour quand même pour éviter de re-checker
+            update_last_match_for_tft_player(db_connection, puuid, latest_match_id)
+
+    except Exception as e:
+        print(f"Erreur lors de la vérification des matchs TFT: {e}")
+        import traceback
+        traceback.print_exc()
+
+    return None
+
+
+def create_tft_match_embed(match_info, discord_module, daily_stats=None):
+    """Crée l'embed Discord pour une notification de match TFT"""
+    match_data = match_info['match_data']
+    player_stats = match_info['player_stats']
+    summoner_name = match_info['summoner_name']
+    match_id = match_info['match_id']
+    ranked_info = match_info.get('ranked_info')
+
+    # Infos du match
+    info = match_data['info']
+    game_length = info.get('game_length', 0)  # en secondes
+
+    # Stats du joueur
+    placement = player_stats.get('placement', 8)
+    level = player_stats.get('level', 1)
+    gold_left = player_stats.get('gold_left', 0)
+    players_eliminated = player_stats.get('players_eliminated', 0)
+    total_damage_to_players = player_stats.get('total_damage_to_players', 0)
+
+    # Traits actifs
+    traits = player_stats.get('traits', [])
+    active_traits = [t for t in traits if t.get('tier_current', 0) > 0]
+    # Trier par tier (plus haut en premier)
+    active_traits.sort(key=lambda x: x.get('tier_current', 0), reverse=True)
+
+    # Units (champions)
+    units = player_stats.get('units', [])
+    # Trier par étoiles (tier)
+    units.sort(key=lambda x: x.get('tier', 1), reverse=True)
+
+    # Augments
+    augments = player_stats.get('augments', [])
+
+    # Déterminer si c'est une bonne game (top 4)
+    is_top4 = placement <= 4
+    is_first = placement == 1
+
+    # ═══════════════════════════════════════════════════════════════
+    # STYLE RECON / VALORANT NEON
+    # Palette: Deep Purple #7B2FBE, Magenta #E100FF, Cyan #00D4FF
+    # ═══════════════════════════════════════════════════════════════
+
+    # Couleur principale - Deep Purple (comme les skins Recon)
+    result_color = discord_module.Color.from_rgb(123, 47, 190)  # Deep purple #7B2FBE
+
+    # ══════════════════════════════════════════════════════════════
+    # TITRE - Style épuré
+    # ══════════════════════════════════════════════════════════════
+    if is_first:
+        title = "▸ 1ST PLACE 👑"
+    elif is_top4:
+        title = f"▸ TOP {placement}"
+    else:
+        title = f"▸ #{placement}"
+
+    # ══════════════════════════════════════════════════════════════
+    # BADGES
+    # ══════════════════════════════════════════════════════════════
+    badges = []
+    if is_first:
+        badges.append("👑 WINNER")
+    elif placement == 2:
+        badges.append("🥈 SO CLOSE")
+    elif is_top4:
+        badges.append("✓ TOP 4")
+    elif placement == 8:
+        badges.append("💀 8TH")
+    elif placement >= 6:
+        badges.append("📉 DIFF")
+
+    if players_eliminated >= 3:
+        badges.append(f"🔪 {players_eliminated} KILLS")
+
+    if level >= 9:
+        badges.append(f"⚡ LVL {level}")
+
+    badges_text = " ".join(badges) if badges else ""
+
+    # ══════════════════════════════════════════════════════════════
+    # DESCRIPTION - Style Recon épuré
+    # ══════════════════════════════════════════════════════════════
+
+    # Top 3 traits actifs pour le titre
+    top_traits = active_traits[:3]
+    traits_display = " · ".join([f"{t.get('name', 'Unknown')}" for t in top_traits]) if top_traits else "No synergies"
+
+    description = f"# #{placement}\n"
+    description += f"### {traits_display}\n\n"
+
+    # Ligne de statut
+    if is_first:
+        description += f"**{summoner_name}** ─ ✦ Victory\n"
+    elif is_top4:
+        description += f"**{summoner_name}** ─ ✓ Top 4\n"
+    else:
+        description += f"**{summoner_name}** ─ ✧ Eliminated\n"
+
+    # Badges compacts
+    if badges_text:
+        description += f"\n{badges_text}\n"
+
+    # Message fun pour les mauvais placements
+    if placement >= 7:
+        toxic_messages = [
+            "💀 RIP BOZO",
+            "🎪 Entertainment value +100",
+            "📉 Hardstuck confirmed",
+            "🤡 What was that comp?",
+            "🗿 Built different (negatively)"
+        ]
+        import random
+        description += f"\n> *{random.choice(toxic_messages)}*"
+
+    # Créer l'embed
+    embed = discord_module.Embed(
+        title=title,
+        description=description,
+        color=result_color,
+        timestamp=discord_module.utils.utcnow()
+    )
+
+    # ══════════════════════════════════════════════════════════════
+    # STATS - Style minimaliste
+    # ══════════════════════════════════════════════════════════════
+
+    game_duration_min = int(game_length // 60)
+    game_duration_sec = int(game_length % 60)
+
+    stats_value = f"```\n"
+    stats_value += f"  PLACE ───── #{placement}\n"
+    stats_value += f"  LEVEL ───── {level}\n"
+    stats_value += f"  KILLS ───── {players_eliminated}\n"
+    stats_value += f"  TIME  ───── {game_duration_min}m {game_duration_sec}s\n"
+    stats_value += f"```"
+
+    embed.add_field(
+        name="◈ PERFORMANCE",
+        value=stats_value,
+        inline=False
+    )
+
+    # ══════════════════════════════════════════════════════════════
+    # COMP (Units) - Top 6
+    # ══════════════════════════════════════════════════════════════
+
+    if units:
+        # Formater les units avec leurs étoiles
+        top_units = units[:6]
+        units_display = []
+        for unit in top_units:
+            name = unit.get('character_id', 'Unknown').replace('TFT_', '').replace('TFT9_', '').replace('TFT10_', '').replace('TFT11_', '').replace('TFT12_', '')
+            tier = unit.get('tier', 1)
+            stars = "★" * tier
+            units_display.append(f"{name} {stars}")
+
+        comp_value = f"```\n"
+        for i, u in enumerate(units_display):
+            comp_value += f"  ▸ {u}\n"
+        comp_value += f"```"
+
+        embed.add_field(
+            name="◈ COMP",
+            value=comp_value,
+            inline=True
+        )
+
+    # ══════════════════════════════════════════════════════════════
+    # TRAITS - Top 4
+    # ══════════════════════════════════════════════════════════════
+
+    if active_traits:
+        top_4_traits = active_traits[:4]
+        traits_value = f"```\n"
+        for t in top_4_traits:
+            name = t.get('name', 'Unknown')
+            count = t.get('num_units', 0)
+            tier = t.get('tier_current', 0)
+            tier_display = "◆" * tier if tier > 0 else "◇"
+            traits_value += f"  {tier_display} {name} ({count})\n"
+        traits_value += f"```"
+
+        embed.add_field(
+            name="◈ TRAITS",
+            value=traits_value,
+            inline=True
+        )
+
+    # ══════════════════════════════════════════════════════════════
+    # AUGMENTS - Si disponibles
+    # ══════════════════════════════════════════════════════════════
+
+    if augments:
+        augments_display = []
+        for aug in augments[:3]:
+            # Nettoyer le nom de l'augment
+            aug_name = aug.replace('TFT9_Augment_', '').replace('TFT10_Augment_', '').replace('TFT11_Augment_', '').replace('TFT12_Augment_', '').replace('_', ' ')
+            augments_display.append(aug_name)
+
+        aug_value = f"```\n"
+        for a in augments_display:
+            aug_value += f"  ▸ {a}\n"
+        aug_value += f"```"
+
+        embed.add_field(
+            name="◈ AUGMENTS",
+            value=aug_value,
+            inline=False
+        )
+
+    # ══════════════════════════════════════════════════════════════
+    # RANK - Style progress bar neon
+    # ══════════════════════════════════════════════════════════════
+
+    if ranked_info:
+        tier = ranked_info['tier']
+        rank = ranked_info['rank']
+        lp = ranked_info['lp']
+
+        # Barre LP style neon
+        filled = int(lp / 10)
+        empty = 10 - filled
+        lp_bar = "▮" * filled + "▯" * empty
+
+        rank_value = f"```\n"
+        rank_value += f"  {tier.upper()} {rank}\n"
+        rank_value += f"  {lp_bar}\n"
+        rank_value += f"  {lp} LP\n"
+        rank_value += f"```"
+
+        embed.add_field(
+            name="◈ RANK",
+            value=rank_value,
+            inline=True
+        )
+
+    # ══════════════════════════════════════════════════════════════
+    # DAILY STATS - Style épuré
+    # ══════════════════════════════════════════════════════════════
+
+    if daily_stats and daily_stats['games'] > 0:
+        daily_games = daily_stats['games']
+        daily_top4 = daily_stats['top4']
+        daily_first = daily_stats.get('first_place', 0)
+        daily_avg = daily_stats.get('avg_placement', 0)
+
+        # Status icon basé sur la moyenne
+        if daily_avg <= 3.5:
+            status_icon = "▲"
+            status_text = "Climbing"
+        elif daily_avg <= 4.5:
+            status_icon = "►"
+            status_text = "Stable"
+        else:
+            status_icon = "▼"
+            status_text = "Rough day"
+
+        daily_value = f"```\n"
+        daily_value += f"  TODAY\n"
+        daily_value += f"  {daily_games} games · {daily_top4} top4\n"
+        daily_value += f"  Avg: #{daily_avg}\n"
+        daily_value += f"```"
+        daily_value += f"{status_icon} **{status_text}**"
+
+        if daily_first > 0:
+            daily_value += f" · 👑 ×{daily_first}"
+
+        embed.add_field(
+            name="▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬",
+            value=daily_value,
+            inline=False
+        )
+
+    # ══════════════════════════════════════════════════════════════
+    # FOOTER - Clean
+    # ══════════════════════════════════════════════════════════════
+
+    if is_first:
+        footer_text = "GG EZ"
+    elif is_top4:
+        footer_text = "LP secured"
+    else:
+        toxic_footers = [
+            "diff",
+            "skill issue",
+            "unlucky",
+            "go next",
+            "bad rng"
+        ]
+        import random
+        footer_text = random.choice(toxic_footers)
+
+    embed.set_footer(text=f"◈ {footer_text} | TFT")
 
     return embed
 
