@@ -442,7 +442,7 @@ class ReactionView(discord.ui.View):
 async def on_ready():
     """Événement déclenché quand le bot est prêt"""
     print(f'{bot.user} est connecté!', flush=True)
-    
+
     # Initialiser la base de données
     init_database()
 
@@ -465,7 +465,7 @@ async def on_ready():
     # Charger les joueurs trackés TFT
     lol_tracker.tracked_players_tft = lol_tracker.load_tft_players_from_db(db_connection)
     print(f"Joueurs TFT trackés chargés: {len(lol_tracker.tracked_players_tft)}", flush=True)
-    
+
     # Ajouter le joueur par défaut depuis .env s'il existe et n'est pas déjà tracké
     if DUO_NAME and DUO_TAG:
         print(f"Vérification du joueur par défaut: {DUO_NAME}#{DUO_TAG}...", flush=True)
@@ -478,7 +478,7 @@ async def on_ready():
                 add_tracked_player(DUO_NAME, DUO_TAG, puuid)
             else:
                 print(f"Joueur déjà tracké: {DUO_NAME}#{DUO_TAG}", flush=True)
-    
+
     # Démarrer la vérification des matchs Valorant
     if CHANNEL_ID:
         check_matches.start()
@@ -512,15 +512,15 @@ async def check_matches():
 
     if not CHANNEL_ID or not tracked_players:
         return
-    
+
     # Vérifier et rétablir la connexion DB si nécessaire
     ensure_db_connection()
-    
+
     channel = bot.get_channel(CHANNEL_ID)
     if not channel:
         print(f"⚠️ Impossible de trouver le canal avec l'ID {CHANNEL_ID}")
         return
-    
+
     # Vérifier chaque joueur tracké
     for puuid, player_info in list(tracked_players.items()):
         await check_player_match(channel, puuid, player_info)
@@ -531,7 +531,7 @@ async def check_player_match(channel, puuid, player_info):
         name = player_info['name']
         tag = player_info['tag']
         last_match_id = player_info.get('last_match_id')
-        
+
         # Récupérer l'historique MMR pour ce joueur (5 matchs pour détecter les streaks)
         mmr_history = get_mmr_history(name, tag, region='eu', size=5)
 
@@ -540,14 +540,14 @@ async def check_player_match(channel, puuid, player_info):
             return
         elif not mmr_history or len(mmr_history) == 0:
             return
-        
+
         latest_mmr = mmr_history[0]
         latest_match_id = latest_mmr.get('match_id')
         rr_change = latest_mmr.get('mmr_change_to_last_game', 0)
         current_rank = latest_mmr.get('currenttierpatched', 'Unknown')
         current_rr = latest_mmr.get('ranking_in_tier', 0)
         elo = latest_mmr.get('elo', 0)
-        
+
         # Détecter les streaks
         current_streak = 0
         streak_type = None  # 'win' ou 'loss'
@@ -562,14 +562,14 @@ async def check_player_match(channel, puuid, player_info):
                 current_streak += 1
             else:
                 break
-        
+
         if not latest_match_id:
             return
 
         # Si c'est un nouveau match pour ce joueur
         if latest_match_id != last_match_id:
             print(f"[{name}#{tag}] Nouveau match détecté: {latest_match_id}")
-            
+
             # Vérifier si le match n'a pas déjà été posté dans le channel
             already_posted = await check_if_match_already_posted(channel, latest_match_id)
             if already_posted:
@@ -579,11 +579,11 @@ async def check_player_match(channel, puuid, player_info):
 
             # Récupérer les détails du match
             match_data = get_match_details(latest_match_id)
-            
+
             if match_data is None:
                 # Rate limit
                 return
-            
+
             if match_data:
                 # Obtenir les stats du joueur
                 player_stats = get_player_stats_from_match(match_data, puuid)
@@ -744,11 +744,11 @@ async def check_player_match(channel, puuid, player_info):
                         match_value += f"  RR  ── {'+' if rr_change > 0 else ''}{rr_change} {rr_arrow}\n"
                     match_value += f"```"
 
-                        embed.add_field(
+                    embed.add_field(
                         name="◈ MATCH",
                         value=match_value,
-                            inline=True
-                        )
+                        inline=True
+                    )
 
                     # ══════════════════════════════════════════════════════════════
                     # RANK - Si disponible
@@ -758,15 +758,15 @@ async def check_player_match(channel, puuid, player_info):
                         rank_value += f"  {current_rank}\n"
                         if current_rr > 0:
                             rank_value += f"  {current_rr} RR\n"
-                    if elo > 0:
+                        if elo > 0:
                             rank_value += f"  ELO {elo}\n"
                         rank_value += f"```"
 
-                    embed.add_field(
+                        embed.add_field(
                             name="◈ RANK",
                             value=rank_value,
-                        inline=True
-                    )
+                            inline=True
+                        )
 
                     # Footer minimaliste
                     embed.set_footer(text=f"ID: {latest_match_id[:12]}...")
@@ -903,7 +903,7 @@ async def status_command(interaction: discord.Interaction):
     result_color = discord.Color.from_rgb(123, 47, 190)  # Deep purple #7B2FBE
 
     description = "### System Online\n"
-    
+
     embed = discord.Embed(
         title="▸ STATUS",
         description=description,
@@ -927,7 +927,7 @@ async def status_command(interaction: discord.Interaction):
         value=status_value,
         inline=False
     )
-    
+
     if tracked_players:
         players_value = f"```\n"
         for p in tracked_players.values():
@@ -979,26 +979,26 @@ async def force_check_command(interaction: discord.Interaction):
 async def add_player_command(interaction: discord.Interaction, name: str, tag: str):
     """Ajoute un joueur à tracker"""
     global tracked_players
-    
+
     await interaction.response.send_message(f"🔍 Recherche de {name}#{tag}...")
-    
+
     # Récupérer les infos du compte
     account_info = get_account_info(name, tag)
     if not account_info:
         await interaction.followup.send(f"❌ Joueur {name}#{tag} introuvable. Vérifiez le nom et le tag.")
         return
-    
+
     puuid = account_info.get('puuid')
     real_name = account_info.get('name')
     real_tag = account_info.get('tag')
     level = account_info.get('account_level')
     region = account_info.get('region')
-    
+
     # Vérifier si déjà tracké
     if puuid in tracked_players:
         await interaction.followup.send(f"⚠️ {real_name}#{real_tag} est déjà dans la liste de tracking !")
         return
-    
+
     # Ajouter le joueur
     add_tracked_player(real_name, real_tag, puuid)
 
@@ -1010,7 +1010,7 @@ async def add_player_command(interaction: discord.Interaction, name: str, tag: s
 
     description = f"# {real_name}#{real_tag}\n"
     description += f"### Added to tracking\n"
-    
+
     embed = discord.Embed(
         title="▸ PLAYER ADDED",
         description=description,
@@ -1036,18 +1036,18 @@ async def add_player_command(interaction: discord.Interaction, name: str, tag: s
 async def remove_player_command(interaction: discord.Interaction, name: str, tag: str):
     """Retire un joueur du tracking"""
     global tracked_players
-    
+
     # Trouver le joueur dans la liste
     puuid_to_remove = None
     for puuid, player_info in tracked_players.items():
         if player_info['name'].lower() == name.lower() and player_info['tag'].lower() == tag.lower():
             puuid_to_remove = puuid
             break
-    
+
     if not puuid_to_remove:
         await interaction.response.send_message(f"❌ {name}#{tag} n'est pas dans la liste de tracking")
         return
-    
+
     # Retirer le joueur
     remove_tracked_player(puuid_to_remove)
     await interaction.response.send_message(f"✅ {name}#{tag} retiré du tracking")
@@ -1056,11 +1056,11 @@ async def remove_player_command(interaction: discord.Interaction, name: str, tag
 async def list_players_command(interaction: discord.Interaction):
     """Liste tous les joueurs trackés"""
     global tracked_players
-    
+
     if not tracked_players:
         await interaction.response.send_message("📋 Aucun joueur tracké pour le moment.\nUtilisez `/addplayer nom tag` pour en ajouter.")
         return
-    
+
     # ═══════════════════════════════════════════════════════════════
     # STYLE RECON - Deep Purple theme
     # ═══════════════════════════════════════════════════════════════
@@ -1068,7 +1068,7 @@ async def list_players_command(interaction: discord.Interaction):
     result_color = discord.Color.from_rgb(123, 47, 190)  # Deep purple #7B2FBE
 
     description = f"### {len(tracked_players)} player(s) monitored\n"
-    
+
     embed = discord.Embed(
         title="▸ TRACKED PLAYERS",
         description=description,
@@ -1084,13 +1084,13 @@ async def list_players_command(interaction: discord.Interaction):
         players_value += f"  ▸ {name}#{tag}\n"
         players_value += f"    Last: {last_match_short}\n"
     players_value += f"```"
-        
+
         embed.add_field(
         name="◈ PLAYERS",
         value=players_value,
             inline=False
         )
-    
+
     await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name='stats', description='Affiche les statistiques détaillées d\'un joueur')
@@ -1424,18 +1424,18 @@ async def test_api_command(interaction: discord.Interaction, name: str = None, t
         else:
             await interaction.response.send_message("❌ Spécifiez un joueur: /testapi nom:xxx tag:xxx")
             return
-    
+
     await interaction.response.send_message(f"🔍 Test de l'API pour {name}#{tag}...")
-    
+
     # Tester l'endpoint account
     account_info = get_account_info(name, tag)
     if account_info:
         puuid = account_info.get('puuid')
         await interaction.followup.send(f"✅ Compte trouvé - PUUID: `{puuid[:8]}...`")
-        
+
         # Tester l'endpoint MMR history (le seul qui fonctionne)
         mmr_history = get_mmr_history(name, tag, region='eu', size=3)
-        
+
         if mmr_history is None:
             await interaction.followup.send("⚠️ Rate limit atteint")
         elif mmr_history:
@@ -1448,7 +1448,7 @@ async def test_api_command(interaction: discord.Interaction, name: str = None, t
                 map_name = mmr.get('map', {}).get('name', 'N/A')
                 result += f"{i}. {rank} | {'+' if rr > 0 else ''}{rr} RR | {map_name}\n"
                 result += f"   Match ID: {match_id[:8]}...\n"
-            
+
             await interaction.followup.send(f"```\n{result}\n```")
         else:
             await interaction.followup.send("❌ Aucun match trouvé dans l'historique MMR")
