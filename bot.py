@@ -152,17 +152,14 @@ def init_database():
             )
         """)
 
-        # Créer la table des joueurs trackés TFT
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS tracked_players_tft (
-                puuid VARCHAR(255) PRIMARY KEY,
-                summoner_name VARCHAR(255) NOT NULL,
-                region VARCHAR(50) NOT NULL,
-                last_match_id VARCHAR(255),
-                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+        # Ajouter la colonne last_tft_match_id si elle n'existe pas
+        try:
+            cursor.execute("""
+                ALTER TABLE tracked_players_lol 
+                ADD COLUMN IF NOT EXISTS last_tft_match_id VARCHAR(255)
+            """)
+        except Exception:
+            pass  # La colonne existe peut-être déjà
 
         db_connection.commit()
         cursor.close()
@@ -462,9 +459,8 @@ async def on_ready():
     lol_tracker.tracked_players_lol = lol_tracker.load_lol_players_from_db(db_connection)
     print(f"Joueurs LoL trackés chargés: {len(lol_tracker.tracked_players_lol)}", flush=True)
 
-    # Charger les joueurs trackés TFT
-    lol_tracker.tracked_players_tft = lol_tracker.load_tft_players_from_db(db_connection)
-    print(f"Joueurs TFT trackés chargés: {len(lol_tracker.tracked_players_tft)}", flush=True)
+    # TFT utilise les mêmes joueurs que LoL
+    print(f"TFT tracking activé pour les {len(lol_tracker.tracked_players_lol)} joueur(s) LoL", flush=True)
     
     # Ajouter le joueur par défaut depuis .env s'il existe et n'est pas déjà tracké
     if DUO_NAME and DUO_TAG:
@@ -496,14 +492,13 @@ async def on_ready():
     elif lol_tracker.tracked_players_lol:
         print("⚠️ Joueurs LoL trackés mais aucun channel configuré (LOL_CHANNEL_ID ou CHANNEL_ID)", flush=True)
 
-    # Démarrer la vérification des matchs TFT
-    tft_channel = LOL_CHANNEL_ID if LOL_CHANNEL_ID else CHANNEL_ID  # Same channel as LoL
-    if tft_channel and lol_tracker.tracked_players_tft:
+    # Démarrer la vérification des matchs TFT (utilise les mêmes joueurs que LoL)
+    tft_channel = LOL_CHANNEL_ID if LOL_CHANNEL_ID else CHANNEL_ID
+    if tft_channel and lol_tracker.tracked_players_lol:
         check_tft_matches.start()
         print(f"✅ Vérification des matchs TFT activée toutes les {POLL_INTERVAL} secondes.", flush=True)
-        print(f"Tracking {len(lol_tracker.tracked_players_tft)} joueur(s) TFT", flush=True)
-    elif lol_tracker.tracked_players_tft:
-        print("⚠️ Joueurs TFT trackés mais aucun channel configuré", flush=True)
+    elif lol_tracker.tracked_players_lol:
+        print("⚠️ Joueurs LoL/TFT trackés mais aucun channel configuré", flush=True)
 
 @tasks.loop(seconds=POLL_INTERVAL)
 async def check_matches():
@@ -515,7 +510,7 @@ async def check_matches():
     
     # Vérifier et rétablir la connexion DB si nécessaire
     ensure_db_connection()
-
+    
     channel = bot.get_channel(CHANNEL_ID)
     if not channel:
         print(f"⚠️ Impossible de trouver le canal avec l'ID {CHANNEL_ID}")
@@ -562,7 +557,7 @@ async def check_player_match(channel, puuid, player_info):
                 current_streak += 1
             else:
                 break
-
+        
         if not latest_match_id:
             return
 
@@ -845,8 +840,8 @@ async def before_check_lol_matches():
 
 @tasks.loop(seconds=POLL_INTERVAL)
 async def check_tft_matches():
-    """Vérifie périodiquement les nouveaux matchs TFT pour tous les joueurs trackés"""
-    if not lol_tracker.tracked_players_tft:
+    """Vérifie périodiquement les nouveaux matchs TFT pour tous les joueurs LoL trackés"""
+    if not lol_tracker.tracked_players_lol:
         return
 
     # Vérifier et rétablir la connexion DB si nécessaire
@@ -862,8 +857,8 @@ async def check_tft_matches():
         print(f"⚠️ Impossible de trouver le canal TFT avec l'ID {channel_id}")
         return
 
-    # Vérifier chaque joueur TFT tracké
-    for puuid, player_info in list(lol_tracker.tracked_players_tft.items()):
+    # Vérifier chaque joueur LoL tracké (TFT utilise la même liste)
+    for puuid, player_info in list(lol_tracker.tracked_players_lol.items()):
         match_info = await lol_tracker.check_tft_player_match(db_connection, puuid, player_info)
 
         if match_info:
@@ -912,13 +907,11 @@ async def status_command(interaction: discord.Interaction):
 
     val_count = len(tracked_players)
     lol_count = len(lol_tracker.tracked_players_lol)
-    tft_count = len(lol_tracker.tracked_players_tft)
 
     status_value = f"```\n"
     status_value += f"  BOT ─────── ACTIVE ✓\n"
     status_value += f"  VALORANT ── {val_count}\n"
-    status_value += f"  LOL ─────── {lol_count}\n"
-    status_value += f"  TFT ─────── {tft_count}\n"
+    status_value += f"  LOL+TFT ─── {lol_count}\n"
     status_value += f"  INTERVAL ── {POLL_INTERVAL}s\n"
     status_value += f"```"
 
@@ -947,20 +940,8 @@ async def status_command(interaction: discord.Interaction):
         lol_value += f"```"
 
         embed.add_field(
-            name="◈ LOL",
+            name="◈ LOL + TFT",
             value=lol_value,
-            inline=True
-        )
-
-    if lol_tracker.tracked_players_tft:
-        tft_value = f"```\n"
-        for p in lol_tracker.tracked_players_tft.values():
-            tft_value += f"  ▸ {p['summoner_name']}\n"
-        tft_value += f"```"
-
-        embed.add_field(
-            name="◈ TFT",
-            value=tft_value,
             inline=True
         )
 
@@ -1068,7 +1049,7 @@ async def list_players_command(interaction: discord.Interaction):
     result_color = discord.Color.from_rgb(123, 47, 190)  # Deep purple #7B2FBE
 
     description = f"### {len(tracked_players)} player(s) monitored\n"
-
+    
     embed = discord.Embed(
         title="▸ TRACKED PLAYERS",
         description=description,
@@ -1783,249 +1764,7 @@ async def rank_lol_command(interaction: discord.Interaction, riot_id: str):
     await interaction.followup.send(embed=embed)
 
 # ==================== COMMANDES TFT ====================
-
-@bot.tree.command(name='addplayer-tft', description='Ajoute un joueur TFT à tracker (EUW only)')
-@app_commands.describe(riot_id='Riot ID complet (ex: ThroatGoat#Glucc)')
-async def add_tft_player_command(interaction: discord.Interaction, riot_id: str):
-    """Ajoute un joueur TFT à tracker"""
-
-    # Force EUW region
-    region = 'euw1'
-
-    # Parser le Riot ID (nom#tag)
-    if '#' not in riot_id:
-        await interaction.response.send_message(f"❌ Format invalide ! Utilisez le format **Nom#Tag** (ex: ThroatGoat#Glucc)")
-        return
-
-    game_name, tag_line = riot_id.split('#', 1)
-
-    await interaction.response.send_message(f"🔍 Recherche du joueur TFT **{riot_id}** sur **{region.upper()}**...")
-
-    # Déterminer la routing region
-    routing_region = lol_tracker.REGION_TO_ROUTING.get(region, 'europe')
-
-    # Récupérer le compte Riot (pour avoir le PUUID)
-    account_info = lol_tracker.get_account_by_riot_id(game_name, tag_line, routing_region)
-    if not account_info:
-        await interaction.followup.send(f"❌ Compte Riot **{riot_id}** introuvable. Vérifiez le nom et le tag.")
-        return
-
-    puuid = account_info.get('puuid')
-
-    # Récupérer les infos du summoner via PUUID
-    summoner_info = lol_tracker.get_summoner_by_puuid(puuid, region)
-    if not summoner_info:
-        await interaction.followup.send(f"❌ Impossible de récupérer les informations du summoner sur **{region.upper()}**.\nVérifiez que votre clé API Riot est valide et que le joueur existe sur cette région.")
-        return
-
-    summoner_name_real = account_info.get('gameName')
-    summoner_tag = account_info.get('tagLine')
-    summoner_level = summoner_info.get('summonerLevel', 0)
-
-    # Vérifier si déjà tracké
-    if puuid in lol_tracker.tracked_players_tft:
-        await interaction.followup.send(f"⚠️ **{summoner_name_real}#{summoner_tag}** est déjà dans la liste de tracking TFT !")
-        return
-
-    # Récupérer les stats ranked TFT (optionnel)
-    ranked_stats = None
-    try:
-        ranked_stats = lol_tracker.get_tft_ranked_stats(puuid, region)
-    except Exception as e:
-        print(f"⚠️ Impossible de récupérer les stats ranked TFT: {e}")
-
-    # Ajouter le joueur
-    lol_tracker.add_tft_player(db_connection, f"{summoner_name_real}#{summoner_tag}", region, puuid)
-
-    # Démarrer le task loop TFT si pas déjà actif
-    if not check_tft_matches.is_running():
-        check_tft_matches.start()
-        print("✅ Task loop TFT démarré")
-
-    # ═══════════════════════════════════════════════════════════════
-    # STYLE RECON - Deep Purple theme
-    # ═══════════════════════════════════════════════════════════════
-
-    result_color = discord.Color.from_rgb(123, 47, 190)  # Deep purple #7B2FBE
-
-    description = f"# {summoner_name_real}#{summoner_tag}\n"
-    description += f"### Added to TFT tracking\n"
-
-    embed = discord.Embed(
-        title="▸ TFT PLAYER ADDED",
-        description=description,
-        color=result_color
-    )
-
-    info_value = f"```\n"
-    info_value += f"  REGION ─── {region.upper()}\n"
-    info_value += f"  LEVEL ──── {summoner_level}\n"
-    info_value += f"  TRACKED ── {len(lol_tracker.tracked_players_tft) + 1}\n"
-    info_value += f"```"
-
-    embed.add_field(
-        name="◈ INFO",
-        value=info_value,
-        inline=False
-    )
-
-    # Ajouter les stats ranked si disponibles
-    if ranked_stats:
-        tier = ranked_stats['tier']
-        rank = ranked_stats['rank']
-        lp = ranked_stats['lp']
-        wins = ranked_stats['wins']
-        losses = ranked_stats['losses']
-
-        rank_value = f"```\n"
-        rank_value += f"  {tier} {rank}\n"
-        rank_value += f"  {lp} LP\n"
-        rank_value += f"  {wins}W - {losses}L\n"
-        rank_value += f"```"
-
-        embed.add_field(
-            name="◈ RANKED TFT",
-            value=rank_value,
-            inline=False
-        )
-
-    await interaction.followup.send(embed=embed)
-
-
-@bot.tree.command(name='removeplayer-tft', description='Retire un joueur du tracking TFT')
-@app_commands.describe(riot_id='Riot ID complet (ex: ThroatGoat#Glucc)')
-async def remove_tft_player_command(interaction: discord.Interaction, riot_id: str):
-    """Retire un joueur du tracking TFT"""
-
-    # Trouver le joueur dans la liste
-    puuid_to_remove = None
-    for puuid, player_info in lol_tracker.tracked_players_tft.items():
-        if player_info['summoner_name'].lower() == riot_id.lower():
-            puuid_to_remove = puuid
-            break
-
-    if not puuid_to_remove:
-        await interaction.response.send_message(f"❌ **{riot_id}** n'est pas dans la liste de tracking TFT")
-        return
-
-    # Retirer le joueur
-    lol_tracker.remove_tft_player(db_connection, puuid_to_remove)
-    await interaction.response.send_message(f"✅ **{riot_id}** retiré du tracking TFT")
-
-
-@bot.tree.command(name='listplayers-tft', description='Liste tous les joueurs TFT trackés')
-async def list_tft_players_command(interaction: discord.Interaction):
-    """Liste tous les joueurs TFT trackés"""
-    if not lol_tracker.tracked_players_tft:
-        await interaction.response.send_message("📋 Aucun joueur TFT tracké pour le moment.\nUtilisez `/addplayer-tft` pour en ajouter.")
-        return
-
-    # ═══════════════════════════════════════════════════════════════
-    # STYLE RECON - Deep Purple theme
-    # ═══════════════════════════════════════════════════════════════
-
-    result_color = discord.Color.from_rgb(123, 47, 190)  # Deep purple #7B2FBE
-
-    description = f"### {len(lol_tracker.tracked_players_tft)} player(s) monitored\n"
-
-    embed = discord.Embed(
-        title="▸ TRACKED TFT PLAYERS",
-        description=description,
-        color=result_color
-    )
-
-    players_value = f"```\n"
-    for player_info in lol_tracker.tracked_players_tft.values():
-        summoner_name = player_info['summoner_name']
-        region = player_info['region']
-        last_match = player_info.get('last_match_id', 'Aucun')
-        last_match_short = last_match[:8] + "..." if last_match and last_match != 'Aucun' else '—'
-        players_value += f"  ▸ {summoner_name} [{region.upper()}]\n"
-        players_value += f"    Last: {last_match_short}\n"
-    players_value += f"```"
-
-    embed.add_field(
-        name="◈ PLAYERS",
-        value=players_value,
-        inline=False
-    )
-
-    await interaction.response.send_message(embed=embed)
-
-
-@bot.tree.command(name='sync-lol-tft', description='Ajoute tous les joueurs LoL trackés au tracking TFT')
-async def sync_lol_tft_command(interaction: discord.Interaction):
-    """Synchronise les joueurs LoL vers le tracking TFT"""
-
-    if not lol_tracker.tracked_players_lol:
-        await interaction.response.send_message("❌ Aucun joueur LoL n'est tracké. Utilisez `/addplayer-lol` d'abord.")
-        return
-
-    await interaction.response.send_message("🔄 Synchronisation des joueurs LoL vers TFT...")
-
-    added = 0
-    already_tracked = 0
-
-    for puuid, player_info in lol_tracker.tracked_players_lol.items():
-        if puuid in lol_tracker.tracked_players_tft:
-            already_tracked += 1
-            continue
-
-        # Ajouter au tracking TFT
-        lol_tracker.add_tft_player(
-            db_connection,
-            player_info['summoner_name'],
-            player_info['region'],
-            puuid
-        )
-        added += 1
-
-    # Démarrer le task loop TFT si pas déjà actif
-    if added > 0 and not check_tft_matches.is_running():
-        check_tft_matches.start()
-        print("✅ Task loop TFT démarré")
-
-    # ═══════════════════════════════════════════════════════════════
-    # STYLE RECON - Deep Purple theme
-    # ═══════════════════════════════════════════════════════════════
-
-    result_color = discord.Color.from_rgb(123, 47, 190)
-
-    description = f"# Sync Complete\n"
-    description += f"### LoL → TFT\n"
-
-    embed = discord.Embed(
-        title="▸ SYNC COMPLETE",
-        description=description,
-        color=result_color
-    )
-
-    sync_value = f"```\n"
-    sync_value += f"  ADDED ───── {added}\n"
-    sync_value += f"  SKIPPED ─── {already_tracked}\n"
-    sync_value += f"  TOTAL ───── {len(lol_tracker.tracked_players_tft)}\n"
-    sync_value += f"```"
-
-    embed.add_field(
-        name="◈ RESULTS",
-        value=sync_value,
-        inline=False
-    )
-
-    if added > 0:
-        players_value = f"```\n"
-        for p in lol_tracker.tracked_players_tft.values():
-            players_value += f"  ▸ {p['summoner_name']}\n"
-        players_value += f"```"
-
-        embed.add_field(
-            name="◈ TFT TRACKING",
-            value=players_value,
-            inline=False
-        )
-
-    await interaction.followup.send(embed=embed)
-
+# Note: TFT utilise les mêmes joueurs que LoL, pas besoin d'ajouter séparément
 
 @bot.tree.command(name='rank-tft', description='Affiche le rang TFT actuel d\'un joueur (EUW)')
 @app_commands.describe(riot_id='Riot ID complet (ex: ThroatGoat#Glucc)')

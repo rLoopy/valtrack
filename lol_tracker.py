@@ -41,16 +41,14 @@ REGION_TO_ROUTING = {
     'jp1': 'asia',
 }
 
-# Stockage en mémoire des joueurs LoL trackés
-tracked_players_lol = {}  # Format: {puuid: {name, region, last_match_id}}
-
-# Stockage en mémoire des joueurs TFT trackés (liés aux joueurs LoL)
-tracked_players_tft = {}  # Format: {puuid: {name, region, last_match_id}}
+# Stockage en mémoire des joueurs LoL trackés (utilisé aussi pour TFT)
+# Format: {puuid: {summoner_name, region, last_match_id, last_tft_match_id}}
+tracked_players_lol = {}
 
 # ==================== FONCTIONS DATABASE LOL ====================
 
 def load_lol_players_from_db(db_connection):
-    """Charge les joueurs LoL depuis PostgreSQL"""
+    """Charge les joueurs LoL depuis PostgreSQL (inclut les infos TFT)"""
     if not db_connection:
         return {}
 
@@ -66,7 +64,8 @@ def load_lol_players_from_db(db_connection):
             players[row['puuid']] = {
                 'summoner_name': row['summoner_name'],
                 'region': row['region'],
-                'last_match_id': row['last_match_id']
+                'last_match_id': row['last_match_id'],
+                'last_tft_match_id': row.get('last_tft_match_id')  # TFT match ID
             }
 
         return players
@@ -135,93 +134,28 @@ def update_last_match_for_lol_player(db_connection, puuid, match_id):
         tracked_players_lol[puuid]['last_match_id'] = match_id
         save_lol_players_to_db(db_connection, tracked_players_lol)
 
-# ==================== FONCTIONS DATABASE TFT ====================
+# ==================== FONCTIONS TFT (utilise la même DB que LoL) ====================
 
-def load_tft_players_from_db(db_connection):
-    """Charge les joueurs TFT depuis PostgreSQL"""
-    if not db_connection:
-        return {}
-
-    try:
-        from psycopg2.extras import RealDictCursor
-        cursor = db_connection.cursor(cursor_factory=RealDictCursor)
-        cursor.execute("SELECT * FROM tracked_players_tft")
-        rows = cursor.fetchall()
-        cursor.close()
-
-        players = {}
-        for row in rows:
-            players[row['puuid']] = {
-                'summoner_name': row['summoner_name'],
-                'region': row['region'],
-                'last_match_id': row['last_match_id']
-            }
-
-        return players
-    except Exception as e:
-        print(f"⚠️ Erreur lors du chargement des joueurs TFT depuis la DB: {e}")
-        return {}
-
-def save_tft_players_to_db(db_connection, players):
-    """Sauvegarde les joueurs TFT dans PostgreSQL"""
-    if not db_connection:
-        return False
-
-    # Vérifier que la connexion est toujours active
-    try:
-        if db_connection.closed:
-            print("⚠️ Connexion DB fermée, impossible de sauvegarder TFT")
-            return False
-    except Exception:
-        return False
-
-    try:
-        cursor = db_connection.cursor()
-
-        # Clear et re-insert
-        cursor.execute("DELETE FROM tracked_players_tft")
-
-        for puuid, info in players.items():
-            cursor.execute("""
-                INSERT INTO tracked_players_tft (puuid, summoner_name, region, last_match_id)
-                VALUES (%s, %s, %s, %s)
-            """, (puuid, info['summoner_name'], info['region'], info.get('last_match_id')))
-
-        db_connection.commit()
-        cursor.close()
-        print("💾 Joueurs TFT sauvegardés dans PostgreSQL")
-        return True
-    except Exception as e:
-        print(f"⚠️ Erreur lors de la sauvegarde des joueurs TFT dans la DB: {e}")
+def update_last_tft_match_for_player(db_connection, puuid, match_id):
+    """Met à jour le dernier match TFT ID pour un joueur (dans la table LoL)"""
+    global tracked_players_lol
+    if puuid in tracked_players_lol:
+        tracked_players_lol[puuid]['last_tft_match_id'] = match_id
+        # Sauvegarder dans la DB
         if db_connection:
-            db_connection.rollback()
-        return False
-
-def add_tft_player(db_connection, summoner_name, region, puuid):
-    """Ajoute un joueur TFT à la liste de tracking"""
-    global tracked_players_tft
-    tracked_players_tft[puuid] = {
-        'summoner_name': summoner_name,
-        'region': region,
-        'last_match_id': None
-    }
-    save_tft_players_to_db(db_connection, tracked_players_tft)
-
-def remove_tft_player(db_connection, puuid):
-    """Retire un joueur TFT de la liste de tracking"""
-    global tracked_players_tft
-    if puuid in tracked_players_tft:
-        del tracked_players_tft[puuid]
-        save_tft_players_to_db(db_connection, tracked_players_tft)
-        return True
-    return False
-
-def update_last_match_for_tft_player(db_connection, puuid, match_id):
-    """Met à jour le dernier match ID pour un joueur TFT"""
-    global tracked_players_tft
-    if puuid in tracked_players_tft:
-        tracked_players_tft[puuid]['last_match_id'] = match_id
-        save_tft_players_to_db(db_connection, tracked_players_tft)
+            try:
+                cursor = db_connection.cursor()
+                cursor.execute("""
+                    UPDATE tracked_players_lol 
+                    SET last_tft_match_id = %s, updated_at = CURRENT_TIMESTAMP
+                    WHERE puuid = %s
+                """, (match_id, puuid))
+                db_connection.commit()
+                cursor.close()
+            except Exception as e:
+                print(f"⚠️ Erreur lors de la mise à jour du dernier match TFT: {e}")
+                if db_connection:
+                    db_connection.rollback()
 
 # ==================== FONCTIONS API RIOT ====================
 
@@ -1648,11 +1582,11 @@ def get_tft_daily_stats(puuid, region='euw1'):
 
 
 async def check_tft_player_match(db_connection, puuid, player_info):
-    """Vérifie si un joueur TFT a terminé un nouveau match"""
+    """Vérifie si un joueur a terminé un nouveau match TFT (utilise les joueurs LoL)"""
     try:
         summoner_name = player_info['summoner_name']
         region = player_info['region']
-        last_match_id = player_info.get('last_match_id')
+        last_tft_match_id = player_info.get('last_tft_match_id')
 
         # Déterminer la routing region
         routing_region = REGION_TO_ROUTING.get(region, 'europe')
@@ -1669,8 +1603,8 @@ async def check_tft_player_match(db_connection, puuid, player_info):
 
         latest_match_id = match_ids[0]
 
-        # Si c'est un nouveau match
-        if latest_match_id != last_match_id:
+        # Si c'est un nouveau match TFT
+        if latest_match_id != last_tft_match_id:
             print(f"[TFT - {summoner_name}] Nouveau match détecté: {latest_match_id}")
 
             # Récupérer les détails du match
@@ -1698,8 +1632,8 @@ async def check_tft_player_match(db_connection, puuid, player_info):
                     except Exception as e:
                         print(f"[TFT - {summoner_name}] Error fetching rank: {e}")
 
-                    # Mettre à jour le dernier match ID
-                    update_last_match_for_tft_player(db_connection, puuid, latest_match_id)
+                    # Mettre à jour le dernier match TFT ID
+                    update_last_tft_match_for_player(db_connection, puuid, latest_match_id)
 
                     # Retourner les données pour créer l'embed
                     return {
@@ -1714,7 +1648,7 @@ async def check_tft_player_match(db_connection, puuid, player_info):
                     print(f"[TFT - {summoner_name}] Joueur non trouvé dans le match {latest_match_id}")
 
             # Mettre à jour quand même pour éviter de re-checker
-            update_last_match_for_tft_player(db_connection, puuid, latest_match_id)
+            update_last_tft_match_for_player(db_connection, puuid, latest_match_id)
 
     except Exception as e:
         print(f"Erreur lors de la vérification des matchs TFT: {e}")
